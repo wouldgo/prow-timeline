@@ -44,6 +44,25 @@ test('test classification ignores status on non-test sources',()=>{
   assert.equal(model.isTest({source:'E2ETest',locator:{keys:{'e2e-test':'x'}}}),true);
   assert.equal(model.isTest({source:'E2ETest',locator:{}}),false);
 });
+test('timeline collapses only identical records, independent of JSON object key order',()=>{
+  const first={source:'KubeEvent',from:'time',to:null,display:false,
+    locator:{keys:{namespace:'ns',deployment:'oauth',hmsg:'a'}},
+    message:{humanMessage:'Scaled up',annotations:{uid:'same',count:'97'}}};
+  const reordered={message:{annotations:{count:'97',uid:'same'},humanMessage:'Scaled up'},
+    locator:{keys:{hmsg:'a',deployment:'oauth',namespace:'ns'}},display:false,to:null,from:'time',source:'KubeEvent'};
+  const distinct=[{...first,from:'other time'},{...first,to:'time'},
+    {...first,display:true},{...first,source:'Other'},
+    {...first,locator:{keys:{...first.locator.keys,hmsg:'b'}}},
+    {...first,message:{...first.message,annotations:{uid:'same',count:'103'}}},
+    {...first,message:{...first.message,annotations:{uid:'other',count:'97'}}},
+    {...first,message:{...first.message,humanMessage:'Scaled down'}}];
+  const original=JSON.stringify(first);
+  const lanes=model.coalesce([first,reordered,...distinct]);
+  assert.equal(lanes.length,1+distinct.length);
+  assert.equal(lanes[0].event,first);assert.equal(lanes[0].copies,2);
+  assert.ok(lanes.slice(1).every(lane=>lane.copies===1));
+  assert.equal(JSON.stringify(first),original);
+});
 test('page has bounded event DOM and no external assets or unsafe sinks',()=>{
   assert.match(html,/const pageSize=60/);assert.match(html,/visible.slice\(page\*pageSize,/);
   assert.doesNotMatch(html,/innerHTML|document.write|<script[^>]+src=|<link[^>]+href=|fetch\(/);
@@ -87,6 +106,10 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   otherItems.push(...Array.from({length:65},(_,index)=>{
     const record=event('KubeEvent','uid-'+index,1200,1200);record.message.annotations={uid:'uid-'+index,count:'1'};return record;
   }));
+  const duplicate=event('KubeEvent','duplicated',1100,1200);
+  duplicate.message.annotations={uid:'duplicated',count:'97'};
+  const later=event('KubeEvent','duplicated',1300,1400);later.message.annotations={uid:'duplicated',count:'103'};
+  otherItems.push(duplicate,JSON.parse(JSON.stringify(duplicate)),later);
   data.runs.push({name:'step/run3',testCount:2,items:otherItems});data.eventCount+=otherItems.length;data.testCount+=2;
   get('data').textContent=JSON.stringify(data);get('window').value='focus';
   const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)}});
@@ -132,11 +155,30 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   const shared=findGroup('shared');assert.ok(shared);
   assert.equal(shared.children[4].textContent,'3');
   assert.equal(shared.children[5].textContent,'0');
+  assert.equal(shared.children[6].textContent,'4');
+  shared.children[8].children[0].onclick();
+  const counterDetails=JSON.parse(get('details').textContent);
+  assert.equal(counterDetails.cumulative,'4');assert.equal(counterDetails.counterUIDs,1);
+  assert.deepEqual(counterDetails.observations.map(item=>item.count),['2','3','4']);
+  assert.equal(counterDetails.recordsInSelectedTest,0);
+  assert.match(counterDetails.note,/not the selected test/);
+  assert.ok(counterDetails.observations.every(item=>item.message.includes('<script>untrusted</script>')));
+  assert.equal(shared.children[7].textContent,'4View progression');
+  shared.children[7].children[0].onclick();
+  assert.equal(get('counterProgress').hidden,false);
+  assert.equal(get('progressRows').children.length,1);
+  assert.equal(get('progressRows').children[0].children[3].textContent,'4');
+  assert.equal(get('progressRows').children[0].children[2].textContent,'Before test');
   get('clearTest').onclick();
+  assert.equal(get('counterProgress').hidden,true);
   assert.match(get('countSummary').textContent,/Select a test/);
   assert.ok(get('countRows').children.every(row=>row.children[5].textContent==='—'));
   get('testSearch').value='Alpha';get('testSearch').oninput();
   assert.equal(findGroup('shared').children[5].textContent,'3');
+  assert.equal(get('counterProgress').hidden,false);
+  assert.equal(get('progressRows').children.length,3);
+  assert.equal(get('progressRows').children[1].children[4].textContent,'+1');
+  assert.equal(get('progressRows').children[1].children[5].textContent,'Within test');
   get('namespace').value='not-present';get('namespace').listeners.change();
   assert.equal(get('countRows').children.length,0);
   assert.equal(get('countsPage').textContent,'0 / 0');
@@ -168,5 +210,24 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   assert.match(get('details').textContent,/invalid-60/);
   get('text').value='no match';get('text').listeners.input();
   assert.equal(get('invalidRows').children.length,0);assert.equal(get('invalidPage').textContent,'0 / 0');
+
+  get('text').value='';get('testSearch').value='';get('run').value='2';get('run').onchange();
+  get('text').value='duplicated';get('text').listeners.input();
+  assert.equal(rows().length,2);
+  const duplicateRow=rows().find(row=>row.textContent.includes('2 copies'));assert.ok(duplicateRow);
+  assert.match(duplicateRow['aria-label'],/2 copies/);
+  assert.equal(duplicateRow.children[0].children[1].className,'event-reason');
+  assert.equal(duplicateRow.children[0].children[1].textContent,'Ready');
+  assert.match(duplicateRow['aria-label'],/Ready/);
+  duplicateRow.onclick();
+  const duplicateDetails=JSON.parse(get('details').textContent);
+  assert.equal(duplicateDetails.identicalRecords,2);assert.equal(duplicateDetails.message.annotations.count,'97');
+  rows().find(row=>row!==duplicateRow).onclick();
+  assert.equal(JSON.parse(get('details').textContent).message.annotations.count,'103');
+  assert.equal(JSON.parse(get('details').textContent).identicalRecords,1);
+  assert.match(get('summary').textContent,/2 matching intervals.*3 records/);
+  assert.equal(findGroup('duplicated').children[4].textContent,'3');
+  get('run').value='0';get('run').onchange();get('text').value='duplicated';get('text').listeners.input();
+  assert.equal(rows().length,0);
 
 });

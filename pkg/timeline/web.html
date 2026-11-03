@@ -11,6 +11,8 @@
 #eventCounts{width:100%;border-collapse:collapse;font-size:.9rem}#eventCounts th,#eventCounts td{padding:.55rem;text-align:left;border-bottom:1px solid #e4eaf0;overflow-wrap:anywhere}#eventCounts th{background:#f3f6fa}#eventCounts .number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}#countSummary{overflow-wrap:anywhere}
 .invalid-event{display:block;width:100%;text-align:left;margin:.4rem 0;color:#a00;border-color:#c77;overflow-wrap:anywhere}
 .panel>summary h2{display:inline;margin:0}.panel>summary:focus-visible{outline:3px solid #0079c4}
+.event-row{height:64px}.bar{top:21px}.lane .event-reason{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis}
+#progressTable{width:100%;border-collapse:collapse;font-size:.9rem}#progressTable th,#progressTable td{padding:.55rem;text-align:left;border-bottom:1px solid #e4eaf0;overflow-wrap:anywhere}#progressTable th{background:#f3f6fa}
 </style>
 </head>
 <body>
@@ -34,16 +36,23 @@
 <p id="summary" role="status"></p><p id="error" role="alert"></p>
 <details class="panel" aria-label="Events by resource">
 <summary><h2>Events by resource</h2></summary>
-<p class="subtle">All loaded artifacts, grouped by source, namespace, resource and event type. Total = matching timeline entries; In selected test = entries overlapping the selected test. Category/source, namespace and text filters apply to both columns.</p>
+<p class="subtle">All loaded artifacts, grouped by source, namespace, resource and event type. Timeline records count entries, including duplicates; In selected test counts overlapping entries. KubeEvent cumulative sums the maximum counter per Event UID across matching records, ignoring duplicate snapshots and message changes. It can include occurrences before the selected test or monitoring began. Filters apply to all columns. Click Inspect counters for UID, hmsg, count, timestamps, pathological flags and duplicate copies; this does not reproduce the monitor's allow/reject rules.</p>
 <p id="countSummary" role="status"></p>
 <div class="plot-scroll">
 <table id="eventCounts">
-<thead><tr><th scope="col">Category / source</th><th scope="col">Namespace</th><th scope="col">Resource</th><th scope="col">Event</th><th scope="col" class="number">Total</th><th scope="col" class="number">In selected test</th></tr></thead>
+<thead><tr><th scope="col">Category / source</th><th scope="col">Namespace</th><th scope="col">Resource</th><th scope="col">Event</th><th scope="col" class="number">Timeline records</th><th scope="col" class="number">Records in selected test</th><th scope="col" class="number">KubeEvent cumulative (by UID)</th><th scope="col" class="number">Cumulative so far (test end)</th><th scope="col">Counter observations</th></tr></thead>
 <tbody id="countRows"></tbody>
 </table>
 </div>
 <div class="pager"><button id="countsPrev">Previous groups</button><span id="countsPage"></span><button id="countsNext">Next groups</button></div>
 </details>
+<section id="counterProgress" class="panel" hidden aria-label="Cumulative counters in selected test">
+<h2>Cumulative counters in selected test</h2>
+<p id="progressSummary" role="status"></p>
+<p class="subtle">The last observation before the test is the baseline. In-test rows show the cumulative count per UID and the increase since its previous observation. An increase bounded by two in-test observations occurred within the test window; this does not prove causality. A boundary-crossing increase can include occurrences before the test. Future observations are excluded. Filters apply to both the baseline and progression. So far is the sum of maximum counters per UID observed by the test's end, including earlier history.</p>
+<div class="plot-scroll"><table id="progressTable"><thead><tr><th scope="col">Event UID</th><th scope="col">Observed at (UTC)</th><th scope="col">Position</th><th scope="col">Cumulative count</th><th scope="col">Increase</th><th scope="col">Observation bounds</th><th scope="col">Message / hmsg</th></tr></thead><tbody id="progressRows"></tbody></table></div>
+<div class="pager"><button id="progressPrev">Previous observations</button><span id="progressPage"></span><button id="progressNext">Next observations</button></div>
+</section>
 <details class="panel" aria-label="Invalid events">
 <summary><h2>Invalid events</h2></summary>
 <p class="subtle">Invalid intervals remain in total counts but are excluded from temporal comparisons and the chart. Filters apply to this list. Select an event to inspect its original data.</p>
@@ -66,6 +75,18 @@
 'use strict';
 // Timeline provides event filters, time comparisons, and chart positions.
 const Timeline = {
+  // Compare every stored field; JSON object key order does not change identity.
+  recordKey: event => JSON.stringify(event, (key, value) => value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value),
+  coalesce: events => {
+    const lanes = new Map();
+    for (const event of events) {
+      const key = Timeline.recordKey(event);
+      if (!lanes.has(key)) lanes.set(key, {event, copies: 0});
+      lanes.get(key).copies++;
+    }
+    return [...lanes.values()];
+  },
   overlaps: (event, test) => event.valid !== false && test.valid !== false && (event.startKey ?? event.start) <= (test.endKey ?? test.end) && (event.endKey ?? event.end) >= (test.startKey ?? test.start),
   clip: (event, start, end) => ({left: Math.max(0, Math.min(100, (event.start-start)/(end-start)*100)), right: Math.max(0, Math.min(100, (event.end-start)/(end-start)*100)), before: event.start < start, after: Boolean(event.openEnd) || event.end > end}),
   viewport: (test, events, all) => {
@@ -90,7 +111,7 @@ const get=id=>document.getElementById(id);
 const make=(tag,text,className)=>{const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(className)element.className=className;return element;};
 const option=(select,value,label)=>{const element=make('option',label);element.value=value;select.append(element);};
 const pageSize=60;
-let events=[], tests=[], selected=null, page=0, attempts=new Map(), metadata=new Map();
+let events=[], lanes=[], tests=[], selected=null, page=0, attempts=new Map(), metadata=new Map();
 const captured=data.runs.flatMap(run=>run.items);
 const eventAttempts=new Map(),eventArtifacts=new Map();
 for(const run of data.runs){
@@ -102,6 +123,7 @@ for(const run of data.runs){
   }
 }
 let countRows=[],countPage=0,invalidRows=[],invalidPage=0;
+let progressGroupKey=null,progressPage=0;
 get('job').textContent=data.jobURL+' · '+data.eventCount+' intervals · '+data.testCount+' tests';
 data.runs.forEach((run,index)=>option(get('run'),index,run.name+' · '+run.testCount+' tests'));
 // selectRun loads one artifact and prepares its test list.
@@ -109,6 +131,7 @@ function selectRun(){
   events=[...data.runs[Number(get('run').value)].items];
   metadata=new Map(events.map(event=>[event,{resource:Timeline.resource(event),searchText:JSON.stringify(event).toLowerCase()}]));
   events.sort((first,second)=>first.source.localeCompare(second.source)||metadata.get(first).resource.localeCompare(metadata.get(second).resource)||first.startKey.localeCompare(second.startKey));
+  lanes=Timeline.coalesce(events);
   tests=events.filter(event=>Timeline.isTest(event)&&event.valid !== false).sort((first,second)=>first.startKey.localeCompare(second.startKey));
   attempts=eventAttempts;
   selected=tests[0]||null;
@@ -131,10 +154,34 @@ function updateTests(){
   get('tests').value=String(tests.indexOf(selected));
 }
 // showDetails displays the original event and its overlapping tests.
-function showDetails(event){
+function showDetails(event,identicalRecords=1){
   const run=eventArtifacts.get(event);
   const active=(run?.items||[]).filter(test=>Timeline.isTest(test)&&Timeline.overlaps(event,test));
-  get('details').textContent=JSON.stringify({valid:event.valid !== false,reason:event.reason||'',artifact:run?.name,source:event.source,level:event.level,resource:event.locator,message:event.message,from:event.from,to:event.to,openEnd:Boolean(event.openEnd),effectiveEndUTC:event.endKey,relativeStartSeconds:selected&&event.valid !== false?(event.start-selected.start)/1000:null,relativeEndSeconds:selected&&event.valid !== false?(event.end-selected.start)/1000:null,display:event.display,intersectsSelectedTest:selected?Timeline.overlaps(event,selected):null,activeTests:active.map(test=>({artifact:run?.name,name:Timeline.testName(test),attempt:eventAttempts.get(test),status:test.message.annotations?.status,from:test.from,to:test.to})),note:'Active tests intersect this event; temporal overlap does not establish ownership or causality.'+(event.valid === false?' Invalid interval: excluded from temporal comparisons.':event.openEnd?' A null end is open; effectiveEndUTC is the last observed artifact timestamp, not a known end.':' effectiveEndUTC is the original end normalized to UTC.')},null,2);
+  get('details').textContent=JSON.stringify({valid:event.valid !== false,reason:event.reason||'',artifact:run?.name,identicalRecords,source:event.source,level:event.level,resource:event.locator,message:event.message,from:event.from,to:event.to,openEnd:Boolean(event.openEnd),effectiveEndUTC:event.endKey,relativeStartSeconds:selected&&event.valid !== false?(event.start-selected.start)/1000:null,relativeEndSeconds:selected&&event.valid !== false?(event.end-selected.start)/1000:null,display:event.display,intersectsSelectedTest:selected?Timeline.overlaps(event,selected):null,activeTests:active.map(test=>({artifact:run?.name,name:Timeline.testName(test),attempt:eventAttempts.get(test),status:test.message.annotations?.status,from:test.from,to:test.to})),note:'Active tests intersect this event; temporal overlap does not establish ownership or causality.'+(event.valid === false?' Invalid interval: excluded from temporal comparisons.':event.openEnd?' A null end is open; effectiveEndUTC is the last observed artifact timestamp, not a known end.':' effectiveEndUTC is the original end normalized to UTC.')},null,2);
+}
+function showCounters(group){
+  get('details').textContent=JSON.stringify({source:group.source,namespace:group.namespace,resource:group.resource,event:group.event,
+    timelineRecords:group.total,recordsInSelectedTest:group.inTest,cumulative:group.cumulative,
+    counterUIDs:group.counterUIDs,recordsWithoutUsableCounter:group.missingCounters,
+    note:'Cumulative = sum of maximum count per Event UID among matching records across all loaded artifacts. Duplicate snapshots and changing messages do not add occurrences. Missing count defaults to 1, as in the monitor. Missing UID or invalid count is excluded and makes the total partial. Counts cover each Event lifetime, not the selected test. Gaps between snapshots hide individual occurrence times and messages. A pathological flag is recorded metadata, not a reproduction of monitor allow/reject rules.',
+    observations:group.observations},null,2);
+}
+function drawProgress(){
+  const group=countRows.find(row=>row.key===progressGroupKey),progress=group?.testProgress;
+  get('counterProgress').hidden=!progress;
+  get('progressRows').replaceChildren();
+  if(!progress)return;
+  get('progressSummary').textContent=group.namespace+' · '+group.resource+' · '+group.event+' · Test: '+Timeline.testName(selected)+' · Cumulative so far: '+(progress.soFar??'unknown');
+  const pages=Math.max(1,Math.ceil(progress.observations.length/pageSize));
+  progressPage=Math.min(progressPage,pages-1);
+  get('progressPage').textContent=progress.observations.length?(progressPage+1)+' / '+pages:'0 / 0';
+  get('progressPrev').disabled=progressPage===0;get('progressNext').disabled=progressPage>=pages-1;
+  for(const step of progress.observations.slice(progressPage*pageSize,(progressPage+1)*pageSize)){
+    const bounds=step.position==='Before test'?'Baseline':step.counterDecreased?'Counter decreased; increase unknown':step.increase===null?'No earlier observation':step.boundedByTest?'Within test':'Crosses test start';
+    const row=make('tr');
+    for(const value of [step.uid,step.from||step.observedAtKey,step.position,step.count,step.increase===null?'—':'+'+step.increase,bounds,step.message+' · hmsg/'+step.hmsg])row.append(make('td',value));
+    get('progressRows').append(row);
+  }
 }
 // drawCountRows displays one page of resource groups.
 function drawCountRows(){
@@ -148,6 +195,19 @@ function drawCountRows(){
     const row=make('tr');
     for(const value of [group.source,group.namespace,group.resource,group.event])row.append(make('td',value));
     row.append(make('td',group.total,'number'),make('td',group.inTest===null?'—':group.inTest,'number'));
+    row.append(make('td',(group.cumulative??'—')+(group.missingCounters?' (partial; '+group.missingCounters+' records excluded)':''),'number'));
+    const soFarCell=make('td',group.testProgress?.soFar??'—','number');
+    if(group.testProgress?.observations.length){
+      const view=make('button','View progression');view.type='button';
+      view.onclick=()=>{progressGroupKey=group.key;progressPage=0;drawProgress();};soFarCell.append(view);
+    }
+    row.append(soFarCell);
+    const counterCell=make('td');
+    if(group.observations.length){
+      const inspect=make('button','Inspect counters ('+group.counterUIDs+' UIDs, '+group.observations.length+' snapshots)');
+      inspect.type='button';inspect.onclick=()=>showCounters(group);counterCell.append(inspect);
+    }else counterCell.textContent='—';
+    row.append(counterCell);
     get('countRows').append(row);
   }
 }
@@ -160,6 +220,7 @@ function drawCounts(){
     ? countRows.length+' resource/event groups · '+(selected?'Test: '+Timeline.testName(selected):'Select a test to compare counts.')
     : 'No events match the filters.';
   drawCountRows();
+  progressPage=0;drawProgress();
 }
 // drawInvalidRows keeps invalid intervals inspectable without assigning chart positions.
 function drawInvalidRows(){
@@ -186,24 +247,26 @@ function draw(recount=true){
   if(!selected){get('testInfo').textContent='No matching test selected. Clear the test search or choose another artifact.';get('summary').textContent='No test selected';get('prev').disabled=true;get('next').disabled=true;get('page').textContent='0 / 0';return;}
   get('testInfo').textContent=testLabel(selected)+'\nUTC '+selected.from+' → '+Timeline.endLabel(selected)+' · '+(selected.openEnd?'observed span ':'duration ')+((selected.end-selected.start)/1000).toFixed(3)+' s';
   const all=get('window').value==='all';
-  const visible=events.filter(event=>event.valid !== false&&(all||Timeline.overlaps(event,selected))&&Timeline.matches(event,get('category').value,get('namespace').value,get('text').value,metadata.get(event).searchText));
+  const visible=lanes.filter(({event})=>event.valid !== false&&(all||Timeline.overlaps(event,selected))&&Timeline.matches(event,get('category').value,get('namespace').value,get('text').value,metadata.get(event).searchText));
   const totalPages=Math.max(1,Math.ceil(visible.length/pageSize));page=Math.min(page,totalPages-1);
   get('page').textContent=(page+1)+' / '+totalPages;
   get('prev').disabled=page===0;get('next').disabled=page>=totalPages-1;
-  get('summary').textContent=visible.length+' matching intervals · '+(all?'entire step / run':'inclusive overlap with selected test')+' · rows '+(visible.length?page*pageSize+1:0)+'–'+Math.min((page+1)*pageSize,visible.length);
+  get('summary').textContent=visible.length+' matching intervals ('+visible.reduce((sum,lane)=>sum+lane.copies,0)+' records) · '+(all?'entire step / run':'inclusive overlap with selected test')+' · rows '+(visible.length?page*pageSize+1:0)+'–'+Math.min((page+1)*pageSize,visible.length);
   const [start,end]=Timeline.viewport(selected,events,all);
   get('axis').append(make('div','Resource / source'));
   const ticks=make('div',undefined,'ticks');
   for(let index=0;index<=2;index++){const time=start+(end-start)*index/2;const tick=make('span',new Date(time).toISOString().replace('T','\n')+'\n'+((time-selected.start)/1000).toFixed(3)+' s', 'tick');tick.style.left=(index*50)+'%';ticks.append(tick);}
   get('axis').append(ticks);
-  for(const event of visible.slice(page*pageSize,(page+1)*pageSize)){
-    const row=make('button',undefined,'event-row');row.type='button';row.setAttribute('aria-label',event.source+' '+Timeline.resource(event)+' '+event.from+' to '+Timeline.endLabel(event));row.title=event.source+' · '+Timeline.resource(event);
-    const lane=make('span',undefined,'lane');lane.append(make('strong',event.source),make('span',Timeline.resource(event)||event.locator.type));
+  for(const {event,copies} of visible.slice(page*pageSize,(page+1)*pageSize)){
+    const copyLabel=copies>1?' · '+copies+' copies':'';
+    const reason=event.message.reason||'—';
+    const row=make('button',undefined,'event-row');row.type='button';row.setAttribute('aria-label',event.source+' '+reason+' '+Timeline.resource(event)+' '+event.from+' to '+Timeline.endLabel(event)+copyLabel);row.title=event.source+' · '+reason+' · '+Timeline.resource(event)+copyLabel;
+    const lane=make('span',undefined,'lane');lane.append(make('strong',event.source+copyLabel),make('span',reason,'event-reason'),make('span',Timeline.resource(event)||event.locator.type));
     const track=make('span',undefined,'track');const clip=Timeline.clip(event,start,end);
     const bar=make('span',(clip.before?'← ':'')+(event.message.reason||event.message.humanMessage||event.source)+(clip.after?' →':''),'bar'+(Timeline.isTest(event)?' test':'')+(clip.before?' left':'')+(clip.after?' right':''));
     bar.style.left=clip.left+'%';bar.style.width=Math.max(0,clip.right-clip.left)+'%';
     bar.title=event.from+' → '+Timeline.endLabel(event)+(clip.before?' · continues before viewport':'')+(clip.after?' · continues beyond visible end':'');
-    track.append(bar);row.append(lane,track);row.onclick=()=>showDetails(event);get('rows').append(row);
+    track.append(bar);row.append(lane,track);row.onclick=()=>showDetails(event,copies);get('rows').append(row);
   }
   const overlay=make('div',undefined,'overlay');const band=Timeline.clip(selected,start,end);const shade=make('div',undefined,'shade');shade.style.left=band.left+'%';shade.style.width=(band.right-band.left)+'%';overlay.append(shade);
   for(const [position,name] of [[band.left,'start'],[band.right,'end']]){const line=make('div',undefined,'delimiter '+name);line.style.left=position+'%';line.title=name==='end'&&selected.openEnd?'Selected test observed horizon (end unknown)':'Selected test '+name;overlay.append(line);}
@@ -217,6 +280,7 @@ for(const id of ['window','category','namespace','text'])get(id).addEventListene
 get('prev').onclick=()=>{page--;draw(false);};get('next').onclick=()=>{page++;draw(false);};
 get('invalidPrev').onclick=()=>{invalidPage--;drawInvalidRows();};get('invalidNext').onclick=()=>{invalidPage++;drawInvalidRows();};
 get('countsPrev').onclick=()=>{countPage--;drawCountRows();};get('countsNext').onclick=()=>{countPage++;drawCountRows();};
+get('progressPrev').onclick=()=>{progressPage--;drawProgress();};get('progressNext').onclick=()=>{progressPage++;drawProgress();};
 selectRun();
 </script>
 </body>

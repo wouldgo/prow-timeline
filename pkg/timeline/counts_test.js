@@ -60,10 +60,77 @@ test('each timeline entry counts once regardless of cumulative counters or dupli
   items.push(items[0]);
   assert.equal(group(items)[0].total,5);assert.equal(group(items)[0].inTest,5);
 });
+
+const snapshot=(count,hmsg='hash',uid='event-uid',time=15)=>event(time,time,{
+  locator:{keys:{namespace:'ns',deployment:'oauth',hmsg}},
+  message:{reason:'ScaleReplicaUp',humanMessage:'Scaled '+hmsg,
+    annotations:{uid,count,firstTimestamp:'first',lastTimestamp:String(time),pathological:'true'}}
+});
+test('cumulative counters take the maximum per UID across changed messages and duplicated artifacts',()=>{
+  const items=[snapshot('79','a'),snapshot('97','b'),snapshot('103','c')];
+  const row=group([...items,...items])[0];
+  assert.equal(row.total,6);
+  assert.equal(row.cumulative,'103');assert.equal(row.counterUIDs,1);
+  assert.equal(row.observations.length,3);
+  assert.ok(row.observations.every(observation=>observation.records===2));
+  assert.equal(row.observations[2].hmsg,'c');
+  assert.equal(row.observations[2].pathological,'true');
+  assert.equal(group([...items,snapshot('5','d','another')])[0].cumulative,'108');
+});
+test('counters use matching records, retain exact large integers and never imply test-local occurrences',()=>{
+  const items=[snapshot('79','a','same',5),snapshot('97','b','same',15),snapshot('103','c','same',30)];
+  const row=group(items)[0];
+  assert.equal(row.cumulative,'103');assert.equal(row.inTest,1);
+  assert.equal(group(items,selected,e=>e.locator.keys.hmsg==='b')[0].cumulative,'97');
+  assert.equal(group([snapshot('9007199254740993'),snapshot('2','b','other')])[0].cumulative,'9007199254740995');
+  assert.equal(group([snapshot('103'),snapshot('79')])[0].cumulative,'103');
+});
+test('missing UID or invalid counts are reported as incomplete, and other sources have no Kubernetes counters',()=>{
+  const bad=[snapshot('abc'),snapshot('-1'),snapshot('1.2'),snapshot(''),snapshot('3','hash','')];
+  const row=group([...bad,snapshot('103')])[0];
+  assert.equal(row.cumulative,'103');assert.equal(row.missingCounters,5);
+  assert.equal(group(bad)[0].cumulative,null);
+  assert.equal(group([snapshot(undefined)])[0].cumulative,'1');
+  assert.equal(group([snapshot(undefined)])[0].observations[0].countDefaulted,true);
+  const other=group([{...snapshot('103'),source:'PodState'}])[0];
+  assert.equal(other.cumulative,null);assert.equal(other.missingCounters,0);
+});
 test('missing test differs from a selected test without overlapping events',()=>{
   assert.equal(group([event(30)],null)[0].inTest,null);
   assert.equal(group([event(30)])[0].inTest,0);
   assert.equal(group([]).length,0);
+});
+
+test('selected test shows cumulative history up to its end, a prior baseline and per-UID increments',()=>{
+  const items=[snapshot('79','a','same',5),snapshot('97','b','same',12),snapshot('103','c','same',18),snapshot('150','d','same',30)];
+  const row=group([...items,...items])[0];
+  assert.equal(row.cumulative,'150');assert.equal(row.testProgress.soFar,'103');
+  const steps=row.testProgress.observations;
+  assert.deepEqual(Array.from(steps,s=>s.count),['79','97','103']);
+  assert.deepEqual(Array.from(steps,s=>s.position),['Before test','In test','In test']);
+  assert.deepEqual(Array.from(steps,s=>s.increase),[null,'18','6']);
+  assert.equal(steps[1].boundedByTest,false);assert.equal(steps[2].boundedByTest,true);
+  assert.equal(steps[2].records,2);
+  assert.equal(group(items,null)[0].testProgress,null);
+});
+test('test progression uses exact occurrence points, excludes invalid times and preserves boundaries',()=>{
+  const items=[snapshot('2','a','same',0),snapshot('4','b','same',5),snapshot('5','c','same',10),
+    snapshot('8','d','same',20),snapshot('9','e','same',21),
+    {...snapshot('999','bad','same',15),valid:false},snapshot('2','other','other',15)];
+  // A one-second drawing interval can overlap a test even when its occurrence is before it.
+  items[1].endKey=key(15);
+  const progress=group(items)[0].testProgress;
+  assert.equal(progress.soFar,'10');
+  assert.equal(progress.observations.filter(s=>s.uid==='same'&&s.position==='Before test').length,1);
+  assert.deepEqual(Array.from(progress.observations.filter(s=>s.uid==='same'),s=>s.count),['4','5','8']);
+  assert.equal(progress.observations.find(s=>s.uid==='other').increase,null);
+  assert.equal(group([snapshot('1','future','same',30)])[0].testProgress.soFar,null);
+});
+test('counter decreases do not become negative occurrences or an invented increment',()=>{
+  const progress=group([snapshot('97','a','same',5),snapshot('3','b','same',12),snapshot('9','c','same',18)])[0].testProgress;
+  assert.equal(progress.observations[1].increase,null);
+  assert.equal(progress.observations[1].counterDecreased,true);
+  assert.equal(progress.observations[2].increase,'6');
 });
 test('explicit resource identities, test names and absent fields',()=>{
   assert.equal(Counts.identity(event(1,1,{locator:{keys:{pod:'oauth-123',container:'server'}}})).resource,'container=server · pod=oauth-123');

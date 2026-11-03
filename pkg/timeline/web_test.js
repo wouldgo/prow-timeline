@@ -1,0 +1,172 @@
+'use strict';
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const html=fs.readFileSync('web.html','utf8').replace('COUNTS_PLACEHOLDER',fs.readFileSync('counts.js','utf8'));
+const script=html.match(/<script>\n([\s\S]*?)<\/script>/)[1];
+const model=vm.runInNewContext(script+';Timeline;');
+test('inclusive overlap: endpoints, points, enclosing intervals, outside',()=>{
+  const selected={start:10,end:20};
+  for(const [start,end,want] of [[0,10,true],[20,30,true],[10,10,true],[20,20,true],[0,30,true],[12,15,true],[0,9,false],[21,25,false]]){
+    assert.equal(model.overlaps({start,end},selected),want,`${start}–${end}`);
+  }
+});
+test('clipping indicates both continuations and preserves originals',()=>{
+  const event={start:0,end:30};const clip=model.clip(event,10,20);
+  assert.equal(clip.left,0);assert.equal(clip.right,100);assert.equal(clip.before,true);assert.equal(clip.after,true);
+  assert.deepEqual(event,{start:0,end:30});
+});
+test('open ends retain continuation and label observed horizon explicitly',()=>{
+  const event={start:10,end:20,to:null,startKey:'2026-11-02T17:11:09.000000000Z',endKey:'2026-11-02T17:11:13.000000000Z',openEnd:true};
+  assert.equal(model.clip(event,0,30).after,true);
+  assert.match(model.endLabel(event),/open; observed horizon/);
+  assert.equal(event.to,null);
+  assert.equal(model.overlaps(event,{startKey:event.endKey,endKey:event.endKey}),true);
+  assert.equal(model.overlaps(event,{startKey:'2026-11-02T17:11:13.000000001Z',endKey:'2026-11-02T17:11:13.000000001Z'}),false);
+});
+test('focus and entire-run windows including point tests',()=>{
+  const selected={start:10,end:20},outside={start:0,end:100};
+  const focus=model.viewport(selected,[outside],false),all=model.viewport(selected,[outside],true);
+  assert.ok(focus[0]<10&&focus[1]>20);assert.ok(all[0]<0&&all[1]>100);
+  const point=model.viewport({start:10,end:10},[],false);assert.ok(point[0]<10&&point[1]>10);
+});
+test('filters category, namespace and case-insensitive resource/message text',()=>{
+  const event={source:'PodState',locator:{keys:{namespace:'ns',pod:'my-pod'}},message:{humanMessage:'Ready'}};
+  assert.equal(model.matches(event,'PodState','ns','READY'),true);
+  assert.equal(model.matches(event,'KubeEvent','',''),false);
+  assert.equal(model.matches(event,'','other',''),false);
+  assert.equal(model.matches(event,'','','missing'),false);
+  assert.ok(model.resource(event).includes('my-pod'));
+});
+test('test classification ignores status on non-test sources',()=>{
+  assert.equal(model.isTest({source:'PodState',locator:{keys:{'e2e-test':'x'}}}),false);
+  assert.equal(model.isTest({source:'E2ETest',locator:{keys:{'e2e-test':'x'}}}),true);
+  assert.equal(model.isTest({source:'E2ETest',locator:{}}),false);
+});
+test('page has bounded event DOM and no external assets or unsafe sinks',()=>{
+  assert.match(html,/const pageSize=60/);assert.match(html,/visible.slice\(page\*pageSize,/);
+  assert.doesNotMatch(html,/innerHTML|document.write|<script[^>]+src=|<link[^>]+href=|fetch\(/);
+});
+
+test('nanosecond comparisons exclude points just outside either endpoint',()=>{
+  const selected={start:0,end:0,startKey:'2026-11-02T17:11:09.000000001Z',endKey:'2026-11-02T17:11:13.000000001Z'};
+  for(const [stamp,want] of [['2026-11-02T17:11:09.000000000Z',false],['2026-11-02T17:11:09.000000001Z',true],['2026-11-02T17:11:13.000000001Z',true],['2026-11-02T17:11:13.000000002Z',false]]){
+    assert.equal(model.overlaps({start:0,end:0,startKey:stamp,endKey:stamp},selected),want,stamp);
+  }
+});
+
+test('native UI runtime: pagination, test selection/details, search, filters and run changes',()=>{
+  class Element {
+    constructor(tag){this.tag=tag;this.children=[];this.style={};this.value='';this.className='';this.listeners={};this._text='';}
+    set textContent(value){this._text=String(value);this.children=[];}
+    get textContent(){return this._text+this.children.map(child=>child.textContent).join('');}
+    append(...children){for(const child of children){if(this.tag==='select'&&this.children.length===0)this.value=String(child.value);this.children.push(child);}}
+    replaceChildren(...children){this.children=[];this._text='';this.value='';this.append(...children);}
+    setAttribute(name,value){this[name]=value;}
+    addEventListener(name,handler){this.listeners[name]=handler;}
+  }
+  const elements=new Map();
+  const selects=new Set(['run','tests','window','category','namespace']);
+  const get=id=>{assert.ok(html.includes('id="'+id+'"'),'Unknown element '+id);if(!elements.has(id))elements.set(id,new Element(selects.has(id)?'select':'div'));return elements.get(id);};
+  const key=time=>new Date(time).toISOString().replace(/(\.\d{3})Z/,'$1000000Z');
+  const event=(source,name,start,end)=>({source,level:'Info',locator:{type:source,keys:source==='E2ETest'?{'e2e-test':name}:{namespace:'ns',pod:name}},message:{reason:'Ready',humanMessage:'<script>untrusted</script>',annotations:{status:'Passed'}},start,end,from:new Date(start).toISOString(),to:new Date(end).toISOString(),startKey:key(start),endKey:key(end)});
+  const items=[event('E2ETest','Alpha',1000,2000),event('E2ETest','Beta',3000,4000),event('E2ETest','Alpha',5000,6000),...Array.from({length:125},(_,index)=>event('PodState','pod-'+index,900,2100)),event('KubeEvent','outside',0,0)];
+  items.push(...Array.from({length:305},(_,index)=>event('E2ETest','Extra-'+index,10000+index*100,10001+index*100)));
+  items.push({...event('PodState','open-pod',900,40401),to:null,openEnd:true});
+  items.push({...event('E2ETest','Open test',7000,40401),to:null,openEnd:true});
+  const testCount=items.filter(item=>item.source==='E2ETest').length;
+  const data={jobURL:'https://example.invalid/untrusted',eventCount:items.length+1,testCount,runs:[{name:'step/run1',testCount,items},{name:'step/run2',testCount:0,items:[event('PodState','other',1000,2000)]}]};
+  data.runs[1].items.push(...Array.from({length:61},(_,index)=>({
+    ...event(index===0?'E2ETest':'MachineMonitor','invalid-'+index,3000,1000),
+    valid:false,reason:'ends before it starts',start:0,end:0,startKey:'',endKey:''
+  })));
+  const otherItems=[event('E2ETest','Repeated',1000,2000),event('E2ETest','Repeated',1000,2000),...['2','3','4'].map((count,index)=>{
+    const record=event('KubeEvent','shared',1100+index,1900);record.message.annotations={uid:'shared',count};return record;
+  })];
+  otherItems.push(...Array.from({length:65},(_,index)=>{
+    const record=event('KubeEvent','uid-'+index,1200,1200);record.message.annotations={uid:'uid-'+index,count:'1'};return record;
+  }));
+  data.runs.push({name:'step/run3',testCount:2,items:otherItems});data.eventCount+=otherItems.length;data.testCount+=2;
+  get('data').textContent=JSON.stringify(data);get('window').value='focus';
+  const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)}});
+  const scripts=[...html.matchAll(/<script>\n([\s\S]*?)<\/script>/g)].map(match=>match[1]);
+  vm.runInContext(scripts.join('\n'),context);
+  const rows=()=>get('rows').children.filter(child=>child.className==='event-row');
+  assert.equal(rows().length,60);assert.match(get('page').textContent,/1 \/ 3/);
+  assert.equal(get('countRows').children.length,60);
+  assert.match(get('countsPage').textContent,/1 \/ /);
+  assert.match(get('countSummary').textContent,/resource\/event groups/);
+  const firstCountsPage=get('countRows').textContent;
+  get('next').onclick();assert.match(get('page').textContent,/2 \/ 3/);assert.equal(rows().length,60);
+  assert.equal(get('countRows').textContent,firstCountsPage);
+  get('countsNext').onclick();assert.match(get('countsPage').textContent,/2 \/ /);
+  assert.match(get('page').textContent,/2 \/ 3/);
+  get('countsPrev').onclick();assert.equal(get('countRows').textContent,firstCountsPage);
+  rows()[0].onclick();assert.equal(JSON.parse(get('details').textContent).intersectsSelectedTest,true);
+  assert.match(get('details').textContent,/<script>untrusted<\/script>/);
+  get('tests').value='1';get('tests').onchange();assert.match(get('testInfo').textContent,/Beta/);assert.equal(get('details').textContent,'Select an event lane to inspect details.');
+  get('testSearch').value='no such test';get('testSearch').oninput();assert.equal(rows().length,0);assert.match(get('summary').textContent,/No test selected/);
+  get('testSearch').value='Alpha';get('testSearch').oninput();assert.equal(get('tests').children.length,2);assert.match(get('tests').children[1].textContent,/attempt 2/);
+  get('testSearch').value='';get('testSearch').oninput();
+  const openRow=rows().find(row=>row.textContent.includes('open-pod'));assert.ok(openRow);openRow.onclick();
+  const openDetails=JSON.parse(get('details').textContent);assert.equal(openDetails.to,null);assert.equal(openDetails.openEnd,true);assert.equal(openDetails.effectiveEndUTC,key(40401));
+  get('category').value='KubeEvent';get('category').listeners.change();assert.equal(rows().length,0);
+  get('window').value='all';get('window').listeners.change();assert.equal(rows().length,1);
+  get('run').value='1';get('run').onchange();assert.equal(rows().length,0);assert.match(get('summary').textContent,/No test selected/);
+  get('run').value='0';get('run').onchange();assert.equal(rows().length,60);assert.equal(get('category').value,'');
+  get('testSearch').value='Extra-304';get('testSearch').oninput();assert.match(get('testInfo').textContent,/Extra-304/);
+  get('testSearch').value='';get('testSearch').oninput();assert.equal(get('tests').children.length,300);
+  assert.ok(get('tests').children.some(child=>String(child.value)===get('tests').value));
+  assert.match(get('testInfo').textContent,/Alpha/);
+  get('testSearch').value='Open test';get('testSearch').oninput();assert.match(get('testInfo').textContent,/observed span/);
+  get('text').value='Open test';get('text').listeners.input();assert.equal(rows().length,1);rows()[0].onclick();
+  const selectedOpenDetails=JSON.parse(get('details').textContent);assert.equal(selectedOpenDetails.to,null);assert.equal(selectedOpenDetails.openEnd,true);assert.equal(selectedOpenDetails.effectiveEndUTC,key(40401));
+  assert.match(get('rows').children.at(-1).children.at(-1).title,/observed horizon/);
+  vm.runInContext('showDetails(data.runs[2].items[2])',context);
+  const crossArtifact=JSON.parse(get('details').textContent);
+  assert.equal(crossArtifact.artifact,'step/run3');assert.deepEqual(crossArtifact.activeTests.map(test=>test.attempt),[1,2]);
+  assert.ok(crossArtifact.activeTests.every(test=>test.artifact==='step/run3'));
+  get('text').value='';get('category').value='KubeEvent';get('text').listeners.input();
+  const findGroup=name=>get('countRows').children.find(row=>row.children[2].textContent==='pod='+name);
+  const shared=findGroup('shared');assert.ok(shared);
+  assert.equal(shared.children[4].textContent,'3');
+  assert.equal(shared.children[5].textContent,'0');
+  get('clearTest').onclick();
+  assert.match(get('countSummary').textContent,/Select a test/);
+  assert.ok(get('countRows').children.every(row=>row.children[5].textContent==='—'));
+  get('testSearch').value='Alpha';get('testSearch').oninput();
+  assert.equal(findGroup('shared').children[5].textContent,'3');
+  get('namespace').value='not-present';get('namespace').listeners.change();
+  assert.equal(get('countRows').children.length,0);
+  assert.equal(get('countsPage').textContent,'0 / 0');
+  assert.equal(get('countsPrev').disabled,true);assert.equal(get('countsNext').disabled,true);
+  assert.equal(get('countSummary').textContent,'No events match the filters.');
+  get('namespace').value='';get('category').value='';get('text').value='untrusted';get('text').listeners.input();
+  assert.ok(get('countRows').children.length>0);
+  assert.doesNotMatch(html,/Captured artifact data|occurrence ledger|groupRecords|ledgerPrev/);
+  get('run').value='1';get('run').onchange();
+  assert.equal(rows().length,0);assert.match(get('summary').textContent,/No test selected/);
+  assert.equal(get('tests').children.length,0);
+  assert.match(get('invalidSummary').textContent,/61 invalid intervals/);
+  assert.equal(get('invalidRows').children.length,60);
+  assert.equal(get('invalidPage').textContent,'1 / 2');
+  const invalidRow=get('invalidRows').children[0];
+  assert.match(invalidRow.textContent,/Invalid.*ends before it starts/);
+  invalidRow.onclick();
+  const invalidDetails=JSON.parse(get('details').textContent);
+  assert.equal(invalidDetails.valid,false);assert.equal(invalidDetails.reason,'ends before it starts');
+  assert.equal(invalidDetails.from,new Date(3000).toISOString());
+  assert.equal(invalidDetails.to,new Date(1000).toISOString());
+  assert.deepEqual(invalidDetails.activeTests,[]);assert.equal(invalidDetails.relativeStartSeconds,null);
+  get('invalidNext').onclick();assert.equal(get('invalidRows').children.length,1);
+  assert.equal(get('invalidPage').textContent,'2 / 2');assert.equal(get('invalidNext').disabled,true);
+  get('invalidPrev').onclick();assert.equal(get('invalidRows').children.length,60);
+  get('text').value='invalid-60';get('text').listeners.input();
+  assert.equal(get('invalidRows').children.length,1);
+  get('invalidRows').children[0].onclick();
+  assert.match(get('details').textContent,/invalid-60/);
+  get('text').value='no match';get('text').listeners.input();
+  assert.equal(get('invalidRows').children.length,0);assert.equal(get('invalidPage').textContent,'0 / 0');
+
+});

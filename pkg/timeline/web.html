@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Prow timeline</title>
+<style>
+:root{font:15px system-ui,sans-serif;color:#192b3d;background:#f3f6fa}*{box-sizing:border-box}body{margin:0}header,main{padding:1rem;max-width:1800px;margin:auto}h1{font-size:1.5rem;margin:0 0 .6rem}p{line-height:1.5}.subtle{color:#4c6073;font-size:.9rem;overflow-wrap:anywhere}.controls{display:flex;flex-wrap:wrap;gap:.8rem;margin:.8rem 0;align-items:end}label{display:grid;gap:.3rem;font-weight:600;min-width:130px}input,select,button{font:inherit;border:1px solid #9eacbc;border-radius:5px;padding:.5rem;background:white;color:inherit}select{max-width:100%}#run{width:min(100%,1000px)}#tests{width:100%;height:9rem;font-weight:400}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #0079c4}#testInfo{border-left:4px solid #146bb0;background:#e5f0ff;padding:.8rem;white-space:pre-wrap;overflow-wrap:anywhere}.layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:1rem}.panel{background:white;border:1px solid #c6d0db;border-radius:6px;padding:1rem;min-width:0}.plot-scroll{overflow:auto}.plot{min-width:620px;position:relative}.axis,.event-row{display:grid;grid-template-columns:190px minmax(0,1fr)}.axis{position:relative;min-height:90px;border-bottom:1px solid #bccad9;font-size:.78rem}.ticks{position:relative}.tick{position:absolute;top:.4rem;transform:translateX(-50%);white-space:pre;text-align:center}.tick:last-child{transform:translateX(-100%)}.tick:first-child{transform:none}.rows{position:relative}.event-row{height:48px;border-bottom:1px solid #e4eaf0;width:100%;padding:0;text-align:left;border-radius:0;border-top:0;border-left:0;border-right:0;background:transparent}.event-row:hover{background:#edf5ff}.lane{overflow:hidden;padding:.3rem .5rem;font-size:.78rem;white-space:nowrap;text-overflow:ellipsis}.lane strong{display:block}.track{height:100%;position:relative;overflow:hidden}.bar{position:absolute;top:14px;height:22px;min-width:3px;background:#307ba7;border:1px solid #155b85;border-radius:3px;color:white;white-space:nowrap;overflow:hidden;font-size:.75rem;padding:1px 3px}.bar.test{background:#6c48a5}.bar.left{border-left:3px dashed #fff}.bar.right{border-right:3px dashed #fff}.overlay{position:absolute;left:190px;right:0;top:0;bottom:0;pointer-events:none}.shade{position:absolute;top:0;bottom:0;background:#dca82a20}.delimiter{position:absolute;top:0;bottom:0;border-left:2px solid #b55b00}.delimiter.end{border-color:#9c235c}.legend{font-size:.85rem;color:#4c6073}#details{white-space:pre-wrap;overflow-wrap:anywhere;font:13px ui-monospace,monospace;max-height:850px;overflow:auto}#summary{font-weight:600}.pager{display:flex;gap:.7rem;align-items:center;margin:.7rem 0}#error{color:#a00}summary{cursor:pointer}details p{font-size:.9rem}@media(max-width:1000px){.layout{grid-template-columns:1fr}.panel{padding:.7rem}header,main{padding:.7rem}#details{max-height:450px}}
+.controls>label{min-width:0;max-width:100%}.controls input,.controls select{min-width:0;width:100%}
+#eventCounts{width:100%;border-collapse:collapse;font-size:.9rem}#eventCounts th,#eventCounts td{padding:.55rem;text-align:left;border-bottom:1px solid #e4eaf0;overflow-wrap:anywhere}#eventCounts th{background:#f3f6fa}#eventCounts .number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}#countSummary{overflow-wrap:anywhere}
+.invalid-event{display:block;width:100%;text-align:left;margin:.4rem 0;color:#a00;border-color:#c77;overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<header>
+<h1>Prow timeline · UTC</h1>
+<div id="job" class="subtle"></div>
+<p class="subtle">Intervals show temporal coincidence, not ownership or causality. Overlapping tests may share the same events. All data is embedded; this page makes no network requests.</p>
+<label>Step / run artifact<select id="run"></select></label>
+<div class="controls"><label>Search tests<input id="testSearch" type="search" placeholder="Test name or outcome"></label><span id="testCount"></span></div>
+<label>Select test attempt<select id="tests" size="5" aria-label="Test attempts"></select></label>
+<p id="testInfo">Select a test.</p>
+<button id="clearTest">Global overview (no selected test)</button>
+</header>
+<main>
+<div class="controls">
+<label>Window<select id="window"><option value="focus">Selected test + margin</option><option value="all">Entire step / run (outside events)</option></select></label>
+<label>Category / source<select id="category"></select></label>
+<label>Namespace<select id="namespace"></select></label>
+<label>Event text<input id="text" type="search" placeholder="Resource, message, level…"></label>
+</div>
+<p id="summary" role="status"></p><p id="error" role="alert"></p>
+<section class="panel" aria-label="Events by resource">
+<h2>Events by resource</h2>
+<p class="subtle">All loaded artifacts, grouped by source, namespace, resource and event type. Total = matching timeline entries; In selected test = entries overlapping the selected test. Category/source, namespace and text filters apply to both columns.</p>
+<p id="countSummary" role="status"></p>
+<div class="plot-scroll">
+<table id="eventCounts">
+<thead><tr><th scope="col">Category / source</th><th scope="col">Namespace</th><th scope="col">Resource</th><th scope="col">Event</th><th scope="col" class="number">Total</th><th scope="col" class="number">In selected test</th></tr></thead>
+<tbody id="countRows"></tbody>
+</table>
+</div>
+<div class="pager"><button id="countsPrev">Previous groups</button><span id="countsPage"></span><button id="countsNext">Next groups</button></div>
+</section>
+<section class="panel" aria-label="Invalid events">
+<h2>Invalid events</h2>
+<p class="subtle">Invalid intervals remain in total counts but are excluded from temporal comparisons and the chart. Filters apply to this list. Select an event to inspect its original data.</p>
+<p id="invalidSummary" role="status"></p>
+<div id="invalidRows"></div>
+<div class="pager"><button id="invalidPrev">Previous invalid events</button><span id="invalidPage"></span><button id="invalidNext">Next invalid events</button></div>
+</section>
+<div class="layout">
+<section class="panel" aria-label="Timeline lanes">
+<div class="legend">Each row is an event lane; shared resource labels are not exclusive test assignments. Purple = test. Orange/pink delimit selected start/end (observed horizon if open); shaded band = observed test interval. ← / → and dashed edges = continues outside viewport or unknown open end.</div>
+<div class="pager"><button id="prev">Previous</button><span id="page"></span><button id="next">Next</button></div>
+<div class="plot-scroll"><div class="plot"><div id="axis" class="axis"></div><div id="rows" class="rows"></div></div></div>
+</section>
+<aside class="panel"><h2>Event details</h2><pre id="details">Select an event lane to inspect original timestamps, resource, message and active tests.</pre></aside>
+</div>
+<details><summary>How to read this view</summary><p>Focused mode includes intervals intersecting the selected test, including points exactly at either endpoint. A margin leaves room for start/end lines. Only the visible segment is drawn; full original intervals remain in details. Entire step / run mode retains access to all outside events. Filters apply to events, not test selection. Active tests are all test intervals intersecting an event, not an inference of causality. Pagination bounds event DOM to 60 rows. Test search shows at most 300 choices; narrow the search to find more.</p></details>
+</main>
+<script id="data" type="application/json">DATA_PLACEHOLDER</script>
+<script>
+'use strict';
+// Timeline provides event filters, time comparisons, and chart positions.
+const Timeline = {
+  overlaps: (event, test) => event.valid !== false && test.valid !== false && (event.startKey ?? event.start) <= (test.endKey ?? test.end) && (event.endKey ?? event.end) >= (test.startKey ?? test.start),
+  clip: (event, start, end) => ({left: Math.max(0, Math.min(100, (event.start-start)/(end-start)*100)), right: Math.max(0, Math.min(100, (event.end-start)/(end-start)*100)), before: event.start < start, after: Boolean(event.openEnd) || event.end > end}),
+  viewport: (test, events, all) => {
+    let start = test.start, end = test.end;
+    if (all) for (const event of events.filter(event=>event.valid !== false)) {start=Math.min(start,event.start);end=Math.max(end,event.end);}
+    const margin=Math.max((end-start)*.1, 1);
+    return [start-margin,end+margin];
+  },
+  matches: (event, category, namespace, text, searchText) => (!category || event.source === category) && (!namespace || event.locator.keys?.namespace === namespace) && (!text || (searchText ?? JSON.stringify(event).toLowerCase()).includes(text.toLowerCase())),
+  resource: event => Object.entries(event.locator.keys || {}).map(([key,value])=>key+'='+value).join(' · '),
+  testName: event => event.locator.keys?.['e2e-test'] || '',
+  isTest: event => event.source === 'E2ETest' && Boolean(event.locator.keys?.['e2e-test']),
+  endLabel: event => event.to ?? '[open; observed horizon '+event.endKey+']'
+};
+COUNTS_PLACEHOLDER
+</script>
+<script>
+'use strict';
+// The page controller connects test selection, filters, counts, and chart rows.
+const data=JSON.parse(document.getElementById('data').textContent);
+const get=id=>document.getElementById(id);
+const make=(tag,text,className)=>{const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(className)element.className=className;return element;};
+const option=(select,value,label)=>{const element=make('option',label);element.value=value;select.append(element);};
+const pageSize=60;
+let events=[], tests=[], selected=null, page=0, attempts=new Map(), metadata=new Map();
+const captured=data.runs.flatMap(run=>run.items);
+const eventAttempts=new Map(),eventArtifacts=new Map();
+for(const run of data.runs){
+  const counts=new Map();
+  for(const event of run.items)eventArtifacts.set(event,run);
+  for(const test of run.items.filter(event=>Timeline.isTest(event)&&event.valid !== false).sort((first,second)=>first.startKey.localeCompare(second.startKey))){
+    const name=Timeline.testName(test),attempt=(counts.get(name)||0)+1;
+    counts.set(name,attempt);eventAttempts.set(test,attempt);
+  }
+}
+let countRows=[],countPage=0,invalidRows=[],invalidPage=0;
+get('job').textContent=data.jobURL+' · '+data.eventCount+' intervals · '+data.testCount+' tests';
+data.runs.forEach((run,index)=>option(get('run'),index,run.name+' · '+run.testCount+' tests'));
+// selectRun loads one artifact and prepares its test list.
+function selectRun(){
+  events=[...data.runs[Number(get('run').value)].items];
+  metadata=new Map(events.map(event=>[event,{resource:Timeline.resource(event),searchText:JSON.stringify(event).toLowerCase()}]));
+  events.sort((first,second)=>first.source.localeCompare(second.source)||metadata.get(first).resource.localeCompare(metadata.get(second).resource)||first.startKey.localeCompare(second.startKey));
+  tests=events.filter(event=>Timeline.isTest(event)&&event.valid !== false).sort((first,second)=>first.startKey.localeCompare(second.startKey));
+  attempts=eventAttempts;
+  selected=tests[0]||null;
+  for(const [id,values] of [['category',captured.map(event=>event.source)],['namespace',captured.map(event=>event.locator.keys?.namespace).filter(Boolean)]]){
+    get(id).replaceChildren();option(get(id),'','All');[...new Set(values)].sort().forEach(value=>option(get(id),value,value));
+  }
+  get('details').textContent='Select an event lane to inspect details.';
+  updateTests();page=0;draw();
+}
+function testLabel(test){return '['+(test.message.annotations?.status||'unknown')+'] attempt '+attempts.get(test)+' · '+test.from+' · '+Timeline.testName(test);}
+// updateTests limits the test list to the current search.
+function updateTests(){
+  const query=get('testSearch').value.toLowerCase();
+  const matching=tests.filter(test=>testLabel(test).toLowerCase().includes(query));
+  const shown=matching.slice(0,300);
+  get('tests').replaceChildren();
+  shown.forEach(test=>option(get('tests'),tests.indexOf(test),testLabel(test)));
+  get('testCount').textContent=matching.length+' matching tests; '+Math.min(300,matching.length)+' shown';
+  if(!shown.includes(selected)){selected=shown[0]||null;page=0;get('details').textContent='Select an event lane to inspect details.';draw();}
+  get('tests').value=String(tests.indexOf(selected));
+}
+// showDetails displays the original event and its overlapping tests.
+function showDetails(event){
+  const run=eventArtifacts.get(event);
+  const active=(run?.items||[]).filter(test=>Timeline.isTest(test)&&Timeline.overlaps(event,test));
+  get('details').textContent=JSON.stringify({valid:event.valid !== false,reason:event.reason||'',artifact:run?.name,source:event.source,level:event.level,resource:event.locator,message:event.message,from:event.from,to:event.to,openEnd:Boolean(event.openEnd),effectiveEndUTC:event.endKey,relativeStartSeconds:selected&&event.valid !== false?(event.start-selected.start)/1000:null,relativeEndSeconds:selected&&event.valid !== false?(event.end-selected.start)/1000:null,display:event.display,intersectsSelectedTest:selected?Timeline.overlaps(event,selected):null,activeTests:active.map(test=>({artifact:run?.name,name:Timeline.testName(test),attempt:eventAttempts.get(test),status:test.message.annotations?.status,from:test.from,to:test.to})),note:'Active tests intersect this event; temporal overlap does not establish ownership or causality.'+(event.valid === false?' Invalid interval: excluded from temporal comparisons.':event.openEnd?' A null end is open; effectiveEndUTC is the last observed artifact timestamp, not a known end.':' effectiveEndUTC is the original end normalized to UTC.')},null,2);
+}
+// drawCountRows displays one page of resource groups.
+function drawCountRows(){
+  const pages=Math.max(1,Math.ceil(countRows.length/pageSize));
+  countPage=Math.min(countPage,pages-1);
+  get('countsPage').textContent=countRows.length?(countPage+1)+' / '+pages:'0 / 0';
+  get('countsPrev').disabled=countPage===0;
+  get('countsNext').disabled=countPage>=pages-1;
+  get('countRows').replaceChildren();
+  for(const group of countRows.slice(countPage*pageSize,(countPage+1)*pageSize)){
+    const row=make('tr');
+    for(const value of [group.source,group.namespace,group.resource,group.event])row.append(make('td',value));
+    row.append(make('td',group.total,'number'),make('td',group.inTest===null?'—':group.inTest,'number'));
+    get('countRows').append(row);
+  }
+}
+// drawCounts applies filters and compares totals with the selected test.
+function drawCounts(){
+  const matches=event=>Timeline.matches(event,get('category').value,get('namespace').value,get('text').value);
+  countRows=Counts.group(captured,selected,matches);
+  countPage=0;
+  get('countSummary').textContent=countRows.length
+    ? countRows.length+' resource/event groups · '+(selected?'Test: '+Timeline.testName(selected):'Select a test to compare counts.')
+    : 'No events match the filters.';
+  drawCountRows();
+}
+// drawInvalidRows keeps invalid intervals inspectable without assigning chart positions.
+function drawInvalidRows(){
+  const pages=Math.max(1,Math.ceil(invalidRows.length/pageSize));
+  invalidPage=Math.min(invalidPage,pages-1);
+  get('invalidPage').textContent=invalidRows.length?(invalidPage+1)+' / '+pages:'0 / 0';
+  get('invalidPrev').disabled=invalidPage===0;get('invalidNext').disabled=invalidPage>=pages-1;
+  get('invalidRows').replaceChildren();
+  for(const event of invalidRows.slice(invalidPage*pageSize,(invalidPage+1)*pageSize)){
+    const row=make('button','Invalid · '+event.source+' · '+Timeline.resource(event)+' · '+event.reason,'invalid-event');
+    row.type='button';row.onclick=()=>showDetails(event);get('invalidRows').append(row);
+  }
+}
+function drawInvalid(){
+  invalidRows=events.filter(event=>event.valid === false&&Timeline.matches(event,get('category').value,get('namespace').value,get('text').value,metadata.get(event).searchText));
+  invalidPage=0;
+  get('invalidSummary').textContent=invalidRows.length+' invalid intervals matching filters in this artifact';
+  drawInvalidRows();
+}
+// draw displays the chart for the selected test and filters.
+function draw(recount=true){
+  if(recount){drawCounts();drawInvalid();}
+  get('rows').replaceChildren();get('axis').replaceChildren();
+  if(!selected){get('testInfo').textContent='No matching test selected. Clear the test search or choose another artifact.';get('summary').textContent='No test selected';get('prev').disabled=true;get('next').disabled=true;get('page').textContent='0 / 0';return;}
+  get('testInfo').textContent=testLabel(selected)+'\nUTC '+selected.from+' → '+Timeline.endLabel(selected)+' · '+(selected.openEnd?'observed span ':'duration ')+((selected.end-selected.start)/1000).toFixed(3)+' s';
+  const all=get('window').value==='all';
+  const visible=events.filter(event=>event.valid !== false&&(all||Timeline.overlaps(event,selected))&&Timeline.matches(event,get('category').value,get('namespace').value,get('text').value,metadata.get(event).searchText));
+  const totalPages=Math.max(1,Math.ceil(visible.length/pageSize));page=Math.min(page,totalPages-1);
+  get('page').textContent=(page+1)+' / '+totalPages;
+  get('prev').disabled=page===0;get('next').disabled=page>=totalPages-1;
+  get('summary').textContent=visible.length+' matching intervals · '+(all?'entire step / run':'inclusive overlap with selected test')+' · rows '+(visible.length?page*pageSize+1:0)+'–'+Math.min((page+1)*pageSize,visible.length);
+  const [start,end]=Timeline.viewport(selected,events,all);
+  get('axis').append(make('div','Resource / source'));
+  const ticks=make('div',undefined,'ticks');
+  for(let index=0;index<=2;index++){const time=start+(end-start)*index/2;const tick=make('span',new Date(time).toISOString().replace('T','\n')+'\n'+((time-selected.start)/1000).toFixed(3)+' s', 'tick');tick.style.left=(index*50)+'%';ticks.append(tick);}
+  get('axis').append(ticks);
+  for(const event of visible.slice(page*pageSize,(page+1)*pageSize)){
+    const row=make('button',undefined,'event-row');row.type='button';row.setAttribute('aria-label',event.source+' '+Timeline.resource(event)+' '+event.from+' to '+Timeline.endLabel(event));row.title=event.source+' · '+Timeline.resource(event);
+    const lane=make('span',undefined,'lane');lane.append(make('strong',event.source),make('span',Timeline.resource(event)||event.locator.type));
+    const track=make('span',undefined,'track');const clip=Timeline.clip(event,start,end);
+    const bar=make('span',(clip.before?'← ':'')+(event.message.reason||event.message.humanMessage||event.source)+(clip.after?' →':''),'bar'+(Timeline.isTest(event)?' test':'')+(clip.before?' left':'')+(clip.after?' right':''));
+    bar.style.left=clip.left+'%';bar.style.width=Math.max(0,clip.right-clip.left)+'%';
+    bar.title=event.from+' → '+Timeline.endLabel(event)+(clip.before?' · continues before viewport':'')+(clip.after?' · continues beyond visible end':'');
+    track.append(bar);row.append(lane,track);row.onclick=()=>showDetails(event);get('rows').append(row);
+  }
+  const overlay=make('div',undefined,'overlay');const band=Timeline.clip(selected,start,end);const shade=make('div',undefined,'shade');shade.style.left=band.left+'%';shade.style.width=(band.right-band.left)+'%';overlay.append(shade);
+  for(const [position,name] of [[band.left,'start'],[band.right,'end']]){const line=make('div',undefined,'delimiter '+name);line.style.left=position+'%';line.title=name==='end'&&selected.openEnd?'Selected test observed horizon (end unknown)':'Selected test '+name;overlay.append(line);}
+  get('rows').append(overlay);
+}
+get('run').onchange=selectRun;
+get('clearTest').onclick=()=>{selected=null;get('tests').value='';page=0;draw();};
+get('testSearch').oninput=updateTests;
+get('tests').onchange=()=>{selected=tests[Number(get('tests').value)];page=0;get('details').textContent='Select an event lane to inspect details.';draw();};
+for(const id of ['window','category','namespace','text'])get(id).addEventListener(id==='text'?'input':'change',()=>{page=0;draw();});
+get('prev').onclick=()=>{page--;draw(false);};get('next').onclick=()=>{page++;draw(false);};
+get('invalidPrev').onclick=()=>{invalidPage--;drawInvalidRows();};get('invalidNext').onclick=()=>{invalidPage++;drawInvalidRows();};
+get('countsPrev').onclick=()=>{countPage--;drawCountRows();};get('countsNext').onclick=()=>{countPage++;drawCountRows();};
+selectRun();
+</script>
+</body>
+</html>

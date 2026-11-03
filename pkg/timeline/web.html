@@ -10,6 +10,7 @@
 .controls>label{min-width:0;max-width:100%}.controls input,.controls select{min-width:0;width:100%}
 #eventCounts{width:100%;border-collapse:collapse;font-size:.9rem}#eventCounts th,#eventCounts td{padding:.55rem;text-align:left;border-bottom:1px solid #e4eaf0;overflow-wrap:anywhere}#eventCounts th{background:#f3f6fa}#eventCounts .number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}#countSummary{overflow-wrap:anywhere}
 .invalid-event{display:block;width:100%;text-align:left;margin:.4rem 0;color:#a00;border-color:#c77;overflow-wrap:anywhere}
+.panel>summary h2{display:inline;margin:0}.panel>summary:focus-visible{outline:3px solid #0079c4}
 </style>
 </head>
 <body>
@@ -31,8 +32,8 @@
 <label>Event text<input id="text" type="search" placeholder="Resource, message, level…"></label>
 </div>
 <p id="summary" role="status"></p><p id="error" role="alert"></p>
-<section class="panel" aria-label="Events by resource">
-<h2>Events by resource</h2>
+<details class="panel" aria-label="Events by resource">
+<summary><h2>Events by resource</h2></summary>
 <p class="subtle">All loaded artifacts, grouped by source, namespace, resource and event type. Total = matching timeline entries; In selected test = entries overlapping the selected test. Category/source, namespace and text filters apply to both columns.</p>
 <p id="countSummary" role="status"></p>
 <div class="plot-scroll">
@@ -42,14 +43,14 @@
 </table>
 </div>
 <div class="pager"><button id="countsPrev">Previous groups</button><span id="countsPage"></span><button id="countsNext">Next groups</button></div>
-</section>
-<section class="panel" aria-label="Invalid events">
-<h2>Invalid events</h2>
+</details>
+<details class="panel" aria-label="Invalid events">
+<summary><h2>Invalid events</h2></summary>
 <p class="subtle">Invalid intervals remain in total counts but are excluded from temporal comparisons and the chart. Filters apply to this list. Select an event to inspect its original data.</p>
 <p id="invalidSummary" role="status"></p>
 <div id="invalidRows"></div>
 <div class="pager"><button id="invalidPrev">Previous invalid events</button><span id="invalidPage"></span><button id="invalidNext">Next invalid events</button></div>
-</section>
+</details>
 <div class="layout">
 <section class="panel" aria-label="Timeline lanes">
 <div class="legend">Each row is an event lane; shared resource labels are not exclusive test assignments. Purple = test. Orange/pink delimit selected start/end (observed horizon if open); shaded band = observed test interval. ← / → and dashed edges = continues outside viewport or unknown open end.</div>

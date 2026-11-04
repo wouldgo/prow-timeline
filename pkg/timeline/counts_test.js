@@ -22,6 +22,16 @@ test('flat resource/event rows compare all entries with the selected test',()=>{
   assert.equal(row.resource,'deployment=oauth');assert.equal(row.event,'ScaleReplicaUp');
   assert.equal(row.total,5);assert.equal(row.inTest,3);
 });
+test('multiple tests count the union once and keep counter progression specific to one test',()=>{
+  const items=[event(15,35),event(25),event(35)];
+  const tests=[selected,{startKey:key(30),endKey:key(40)}];
+  const row=group(items,tests)[0];
+  assert.equal(row.total,3);assert.equal(row.inTest,2);
+  assert.equal(row.testProgress,null);
+  assert.equal(group(items,[selected])[0].inTest,1);
+  assert.ok(group(items,[selected])[0].testProgress);
+  assert.equal(group(items,[])[0].inTest,null);
+});
 test('exact inclusive overlap includes endpoints and spanning intervals without display margin',()=>{
   const items=[event(0,10),event(20,30),event(0,30),event(10),event(20),event(9),event(21),
     {...event(10),startKey:'0009.999999999',endKey:'0009.999999999'},

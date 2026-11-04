@@ -41,9 +41,11 @@ You decide where to store it, who to share it with, and whether it needs any acc
 
 Open `timeline.html` in your browser, then choose a **Step / run artifact**.
 This selects the timeline file whose tests and event chart you want to explore.
-Use **Search tests** to find a test by name or outcome, then select an attempt
-under **Select test attempt**. The report shows its status, start and end times,
-and duration.
+Use **Search tests** to find a test by name or outcome, then select one or more attempts
+under **Select test attempts**. Use Ctrl/Cmd + click for multiple choices or Shift + click
+for a range, in both the test and namespace lists. The report shows each selected
+test's status, start and end times, and duration. Search narrows the selection
+to matching tests.
 
 ### Compare event counts
 
@@ -55,7 +57,7 @@ and event type, such as repeated events for a particular pod.
 | Column | Meaning |
 | --- | --- |
 | **Timeline records** | Number of matching event entries across all artifacts loaded into the report, including duplicates and events outside the selected test. |
-| **Records in selected test** | Number of those entries whose time intervals overlap the selected test, including its start and end points. |
+| **Records in selected tests** | Number of those entries whose time intervals overlap at least one selected test, including endpoints. Each entry counts once even when it overlaps several selected tests. |
 | **KubeEvent cumulative (by UID)** | Sum of the maximum `message.annotations.count` for each distinct Kubernetes Event UID among matching records. Duplicate snapshots and changes to the message or `hmsg` do not increase this total. |
 | **Cumulative so far (test end)** | Sum of maximum counters per UID observed at or before the selected test's end. Future snapshots and invalid timestamps are excluded. Click **View progression** for the sequence within the test. |
 | **Counter observations** | Click **Inspect counters** to view each snapshot's UID, `hmsg`, count, first/last timestamps, interval, message, pathological flag and number of duplicate records in **Event details**. |
@@ -93,6 +95,7 @@ The pathological flag is original monitor metadata. This report does not
 reproduce the monitor's allowlists, thresholds or test result. Use the snapshots
 to compare the counter values with the job's failure output.
 
+Counter progression and **Cumulative so far** require a single selected test.
 **View progression** opens a table showing the latest observation before the
 selected test for each UID, followed by its in-test observations. Each row shows
 the timestamp, cumulative count, increase since the previous observation for that
@@ -115,7 +118,7 @@ Use the controls below the test selector to narrow down the counts and chart:
 | Filter | What it selects | Example |
 | --- | --- | --- |
 | **Category / source** | The kind of information recorded in an event's `source` field. The available values come from the loaded data. | `E2ETest` for test execution intervals or `PodState` for pod state information. |
-| **Namespace** | Events associated with a specific Kubernetes namespace. | Select your application's namespace to focus on its resources. |
+| **Namespaces** | Events associated with any selected Kubernetes namespace. No selection, or **All**, includes every namespace. | Select several namespaces to compare their resources. |
 | **Event text** | A case-insensitive substring anywhere in an event's stored data, including resource names, messages, reasons, severity levels, and annotations. | Enter a pod name, `Failed`, or a phrase from an event message. |
 
 You can combine all three filters. All count columns update to use the same filters,
@@ -124,17 +127,19 @@ The chart and **Invalid events** list use those filters within the selected arti
 These filters do not change which test is selected; **Search tests** searches the test list separately.
 
 Select **Global overview (no selected test)** to browse totals without a test comparison.
-In this mode, **Records in selected test** shows a dash and the chart is empty.
+In this mode, **Records in selected tests** shows a dash and the chart is empty.
 Select a test again to restore the comparison and chart.
 
 ### Read the timeline
 
 The chart places events from the selected artifact on a horizontal time axis.
 Each row represents one event, with a bar showing when it started and how long it lasted.
-The axis shows UTC timestamps and seconds relative to the selected test's start.
+Rows are ordered by start time. The axis shows UTC timestamps and seconds relative
+to the earliest selected test's start.
 
-By default, **Window → Selected test + margin** shows events that overlap the test,
-with some space around its start and end. Choose **Entire step / run (outside events)**
+By default, **Window → Selected tests + margin** shows events that overlap at least one
+selected test, with some space around the combined window. Events entirely in gaps
+between the selected tests are excluded. Choose **Entire step / run (outside events)**
 to see events before and after the test in the same artifact.
 This changes the chart's time window; the count table still compares all loaded artifacts
 with the exact selected test interval.
@@ -142,8 +147,8 @@ with the exact selected test interval.
 - Purple bars represent test intervals; blue bars represent other events.
 - Each row label shows the source, `message.reason` (for example,
   `ScalingReplicaSet` or `ProbeError`), and resource. A missing reason shows a dash.
-- The orange and pink vertical lines mark the selected test's start and end.
-  The shaded band between them shows its time interval.
+- The orange and pink vertical lines mark each selected test's start and end.
+  Each shaded band shows that test's time interval.
 - Arrows and dashed bar edges indicate that an event continues beyond the visible
   window or has an unknown end.
 
@@ -162,7 +167,7 @@ rather than a confirmed end; the details retain the original null value.
 
 Use **Previous** and **Next** to move through the chart, which shows 60 events per page.
 The counts and invalid-event lists have separate page controls.
-The test search shows at most 300 results; narrow the search if your test is not listed.
+The test search shows up to 300 results plus retained matching selections; narrow the search if your test is not listed.
 
 ## Supported input
 

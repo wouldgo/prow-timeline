@@ -78,15 +78,19 @@ test('nanosecond comparisons exclude points just outside either endpoint',()=>{
 test('native UI runtime: pagination, test selection/details, search, filters and run changes',()=>{
   class Element {
     constructor(tag){this.tag=tag;this.children=[];this.style={};this.value='';this.className='';this.listeners={};this._text='';}
+    get options(){return this.children;}
+    get selectedOptions(){return this.children.filter(option=>option.selected);}
+    get value(){return this.tag==='select'?String(this.selectedOptions[0]?.value??''):this._value;}
+    set value(value){this._value=String(value);if(this.tag==='select')for(const option of this.children)option.selected=String(option.value)===String(value);}
     set textContent(value){this._text=String(value);this.children=[];}
     get textContent(){return this._text+this.children.map(child=>child.textContent).join('');}
-    append(...children){for(const child of children){if(this.tag==='select'&&this.children.length===0)this.value=String(child.value);this.children.push(child);}}
+    append(...children){for(const child of children){if(this.tag==='select'&&this.children.length===0)child.selected=true;this.children.push(child);}}
     replaceChildren(...children){this.children=[];this._text='';this.value='';this.append(...children);}
     setAttribute(name,value){this[name]=value;}
     addEventListener(name,handler){this.listeners[name]=handler;}
   }
   const elements=new Map();
-  const selects=new Set(['run','tests','window','category','namespace']);
+  const selects=new Set(['run','tests','category','namespace']);
   const get=id=>{assert.ok(html.includes('id="'+id+'"'),'Unknown element '+id);if(!elements.has(id))elements.set(id,new Element(selects.has(id)?'select':'div'));return elements.get(id);};
   const key=time=>new Date(time).toISOString().replace(/(\.\d{3})Z/,'$1000000Z');
   const event=(source,name,start,end)=>({source,level:'Info',locator:{type:source,keys:source==='E2ETest'?{'e2e-test':name}:{namespace:'ns',pod:name}},message:{reason:'Ready',humanMessage:'<script>untrusted</script>',annotations:{status:'Passed'}},start,end,from:new Date(start).toISOString(),to:new Date(end).toISOString(),startKey:key(start),endKey:key(end)});
@@ -111,6 +115,13 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   const later=event('KubeEvent','duplicated',1300,1400);later.message.annotations={uid:'duplicated',count:'103'};
   otherItems.push(duplicate,JSON.parse(JSON.stringify(duplicate)),later);
   data.runs.push({name:'step/run3',testCount:2,items:otherItems});data.eventCount+=otherItems.length;data.testCount+=2;
+  const multiItems=[event('E2ETest','Early',1000,2000),event('E2ETest','Late',3000,4000),
+    event('PodState','early-a',1100,1200),event('PodState','late-b',3100,3200),
+    event('PodState','gap',2500,2500),event('PodState','spanning',1500,3500),
+    {...event('PodState','invalid',3000,1000),valid:false,reason:'invalid',startKey:'',endKey:''}];
+  for(const item of multiItems.filter(item=>item.source==='PodState'))item.locator.keys.namespace=
+    item.locator.keys.pod==='late-b'||item.locator.keys.pod==='gap'?'b':item.valid===false?'c':'a';
+  data.runs.push({name:'step/multi',testCount:2,items:multiItems});
   get('data').textContent=JSON.stringify(data);get('window').value='focus';
   const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)}});
   const scripts=[...html.matchAll(/<script>\n([\s\S]*?)<\/script>/g)].map(match=>match[1]);
@@ -151,9 +162,9 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   get('run').value='1';get('run').onchange();assert.equal(rows().length,0);assert.match(get('summary').textContent,/No test selected/);
   get('run').value='0';get('run').onchange();assert.equal(rows().length,60);assert.equal(get('category').value,'');
   get('testSearch').value='Extra-304';get('testSearch').oninput();assert.match(get('testInfo').textContent,/Extra-304/);
-  get('testSearch').value='';get('testSearch').oninput();assert.equal(get('tests').children.length,300);
+  get('testSearch').value='';get('testSearch').oninput();assert.equal(get('tests').children.length,301);
   assert.ok(get('tests').children.some(child=>String(child.value)===get('tests').value));
-  assert.match(get('testInfo').textContent,/Alpha/);
+  assert.match(get('testInfo').textContent,/Extra-304/);
   get('testSearch').value='Open test';get('testSearch').oninput();assert.match(get('testInfo').textContent,/observed span/);
   get('text').value='Open test';get('text').listeners.input();assert.equal(rows().length,1);rows()[0].onclick();
   const selectedOpenDetails=JSON.parse(get('details').textContent);assert.equal(selectedOpenDetails.to,null);assert.equal(selectedOpenDetails.openEnd,true);assert.equal(selectedOpenDetails.effectiveEndUTC,key(40401));
@@ -191,7 +202,7 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   assert.equal(get('progressRows').children.length,3);
   assert.equal(get('progressRows').children[1].children[4].textContent,'+1');
   assert.equal(get('progressRows').children[1].children[5].textContent,'Within test');
-  get('namespace').value='not-present';get('namespace').listeners.change();
+  const absent= new Element('option');absent.value='not-present';get('namespace').append(absent);get('namespace').value='not-present';get('namespace').listeners.change();
   assert.equal(get('countRows').children.length,0);
   assert.equal(get('countsPage').textContent,'0 / 0');
   assert.equal(get('countsPrev').disabled,true);assert.equal(get('countsNext').disabled,true);
@@ -242,4 +253,32 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   get('run').value='0';get('run').onchange();get('text').value='duplicated';get('text').listeners.input();
   assert.equal(rows().length,0);
 
+  get('text').value='';get('run').value='3';get('run').onchange();get('window').value='focus';
+  for(const option of get('tests').options)option.selected=true;
+  get('tests').onchange();
+  assert.match(get('testInfo').textContent,/Early[\s\S]*Late/);
+  assert.equal(get('rows').children.at(-1).children.length,6,'each selected test has its own band and boundaries');
+  const chooseNamespaces=values=>{
+    for(const option of get('namespace').options)option.selected=values.includes(String(option.value));
+    get('namespace').listeners.change();
+  };
+  chooseNamespaces(['a','b']);
+  assert.equal(rows().length,3,'union includes both test windows and excludes the gap');
+  assert.ok(rows().some(row=>row.textContent.includes('early-a')));
+  assert.ok(rows().some(row=>row.textContent.includes('late-b')));
+  assert.ok(!rows().some(row=>row.textContent.includes('gap')));
+  rows().find(row=>row.textContent.includes('spanning')).onclick();
+  assert.deepEqual(JSON.parse(get('details').textContent).selectedTestOverlaps.map(test=>test.intersects),[true,true]);
+  const spanning=findGroup('spanning');assert.equal(spanning.children[5].textContent,'1','overlap with two tests counts once');
+  assert.equal(findGroup('gap').children[5].textContent,'0');
+  chooseNamespaces(['a']);assert.equal(rows().length,2);assert.ok(!findGroup('late-b'));
+  chooseNamespaces(['b']);assert.equal(rows().length,1);
+  chooseNamespaces(['a','c']);assert.equal(get('invalidRows').children.length,1);
+  chooseNamespaces(['a','b']);assert.equal(get('invalidRows').children.length,0);
+  chooseNamespaces([]);assert.equal(rows().length,5,'empty namespace selection includes all namespaces');
+  chooseNamespaces(['','a']);assert.equal(rows().length,5,'All overrides individual namespaces');
+  get('tests').value='1';get('tests').onchange();assert.match(get('testInfo').textContent,/Late/);
+  assert.doesNotMatch(get('testInfo').textContent,/Early/);
+  for(const option of get('tests').options)option.selected=false;
+  get('tests').onchange();assert.equal(rows().length,0);
 });

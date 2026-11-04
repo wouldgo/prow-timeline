@@ -98,19 +98,20 @@ const Counts = {
   // Each matching entry counts once. The cumulative annotations.count does not change this count.
   // Test counts use the exact bounds of the selected test.
   group(events, selected, matches) {
+    const tests = Array.isArray(selected) ? selected : selected ? [selected] : [];
     const groups = new Map();
     for (const event of events) {
       if (!matches(event)) continue;
       const identity = Counts.identity(event);
       if (!groups.has(identity.key)) {
-        groups.set(identity.key, {...identity, total: 0, inTest: selected ? 0 : null, records: []});
+        groups.set(identity.key, {...identity, total: 0, inTest: tests.length ? 0 : null, records: []});
       }
       const group = groups.get(identity.key);
       group.total++;
       group.records.push(event);
-      if (selected && Timeline.overlaps(event, selected)) group.inTest++;
+      if (tests.some(test => Timeline.overlaps(event, test))) group.inTest++;
     }
-    return [...groups.values()].map(({records, ...group}) => ({...group, ...Counts.counters(records, selected)})).sort((a, b) =>
+    return [...groups.values()].map(({records, ...group}) => ({...group, ...Counts.counters(records, tests.length === 1 ? tests[0] : null)})).sort((a, b) =>
       a.source.localeCompare(b.source) ||
       a.namespace.localeCompare(b.namespace) ||
       a.resource.localeCompare(b.resource) ||

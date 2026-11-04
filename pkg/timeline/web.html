@@ -131,7 +131,7 @@ function selectRun(){
   events=[...data.runs[Number(get('run').value)].items];
   metadata=new Map(events.map(event=>[event,{resource:Timeline.resource(event),searchText:JSON.stringify(event).toLowerCase()}]));
   events.sort((first,second)=>first.source.localeCompare(second.source)||metadata.get(first).resource.localeCompare(metadata.get(second).resource)||first.startKey.localeCompare(second.startKey));
-  lanes=Timeline.coalesce(events);
+  lanes=Timeline.coalesce(events).sort((first,second)=>first.event.startKey.localeCompare(second.event.startKey));
   tests=events.filter(event=>Timeline.isTest(event)&&event.valid !== false).sort((first,second)=>first.startKey.localeCompare(second.startKey));
   attempts=eventAttempts;
   selected=tests[0]||null;

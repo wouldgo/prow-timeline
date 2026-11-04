@@ -117,6 +117,18 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   vm.runInContext(scripts.join('\n'),context);
   const rows=()=>get('rows').children.filter(child=>child.className==='event-row');
   assert.equal(rows().length,60);assert.match(get('page').textContent,/1 \/ 3/);
+  const displayedStarts=[];
+  do {
+    for(const row of rows()){
+      row.onclick();
+      displayedStarts.push(JSON.parse(get('details').textContent).from);
+    }
+    if(get('next').disabled)break;
+    get('next').onclick();
+  } while(true);
+  assert.deepEqual(displayedStarts,[...displayedStarts].sort(),'timeline rows follow start time across pages');
+  assert.equal(vm.runInContext('JSON.stringify(data)',context),JSON.stringify(data),'display ordering preserves original data');
+  while(!get('prev').disabled)get('prev').onclick();
   assert.equal(get('countRows').children.length,60);
   assert.match(get('countsPage').textContent,/1 \/ /);
   assert.match(get('countSummary').textContent,/resource\/event groups/);

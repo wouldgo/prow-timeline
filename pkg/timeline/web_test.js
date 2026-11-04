@@ -66,6 +66,7 @@ test('timeline collapses only identical records, independent of JSON object key 
 test('page has bounded event DOM and no external assets or unsafe sinks',()=>{
   assert.match(html,/const pageSize=60/);assert.match(html,/visible.slice\(page\*pageSize,/);
   assert.doesNotMatch(html,/innerHTML|document.write|<script[^>]+src=|<link[^>]+href=|fetch\(/);
+  assert.match(html,/<details id="eventDetails" class="panel" aria-label="Event details"><summary><h2>Event details<\/h2><\/summary>/);
 });
 
 test('nanosecond comparisons exclude points just outside either endpoint',()=>{
@@ -77,7 +78,7 @@ test('nanosecond comparisons exclude points just outside either endpoint',()=>{
 
 test('native UI runtime: pagination, test selection/details, search, filters and run changes',()=>{
   class Element {
-    constructor(tag){this.tag=tag;this.children=[];this.style={};this.value='';this.className='';this.listeners={};this._text='';}
+    constructor(tag){this.tag=tag;this.children=[];this.style={};this.value='';this.className='';this.listeners={};this._text='';this.open=false;}
     get options(){return this.children;}
     get selectedOptions(){return this.children.filter(option=>option.selected);}
     get value(){return this.tag==='select'?String(this.selectedOptions[0]?.value??''):this._value;}
@@ -127,7 +128,18 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   const scripts=[...html.matchAll(/<script>\n([\s\S]*?)<\/script>/g)].map(match=>match[1]);
   vm.runInContext(scripts.join('\n'),context);
   const rows=()=>get('rows').children.filter(child=>child.className==='event-row');
+  assert.equal(get('eventDetails').open,false);
   assert.equal(rows().length,60);assert.match(get('page').textContent,/1 \/ 3/);
+  const namespaceLabel=rows()[0].children[0].children.at(-1);
+  assert.equal(namespaceLabel.className,'event-namespace');assert.equal(namespaceLabel.textContent,'Namespace: ns');
+  assert.match(rows()[0]['aria-label'],/Namespace: ns/);assert.match(rows()[0].title,/Namespace: ns/);
+  rows()[0].onclick();assert.equal(get('eventDetails').open,true);
+  const inspected=get('details').textContent,selection=vm.runInContext('JSON.stringify(selectedValues("tests"))',context);
+  get('eventDetails').open=false;
+  vm.runInContext('draw(false)',context);
+  assert.equal(get('eventDetails').open,false);assert.equal(get('details').textContent,inspected);
+  assert.equal(vm.runInContext('JSON.stringify(selectedValues("tests"))',context),selection);
+  rows()[1].onclick();assert.equal(get('eventDetails').open,true);
   const displayedStarts=[];
   do {
     for(const row of rows()){
@@ -179,7 +191,8 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   assert.equal(shared.children[4].textContent,'3');
   assert.equal(shared.children[5].textContent,'0');
   assert.equal(shared.children[6].textContent,'4');
-  shared.children[8].children[0].onclick();
+  get('eventDetails').open=false;shared.children[8].children[0].onclick();
+  assert.equal(get('eventDetails').open,true);
   const counterDetails=JSON.parse(get('details').textContent);
   assert.equal(counterDetails.cumulative,'4');assert.equal(counterDetails.counterUIDs,1);
   assert.deepEqual(counterDetails.observations.map(item=>item.count),['2','3','4']);
@@ -257,6 +270,7 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   for(const option of get('tests').options)option.selected=true;
   get('tests').onchange();
   assert.match(get('testInfo').textContent,/Early[\s\S]*Late/);
+  assert.ok(rows().filter(row=>row.textContent.includes('E2ETest')).every(row=>row.children[0].children.at(-1).textContent==='Namespace: —'));
   assert.equal(get('rows').children.at(-1).children.length,6,'each selected test has its own band and boundaries');
   const chooseNamespaces=values=>{
     for(const option of get('namespace').options)option.selected=values.includes(String(option.value));

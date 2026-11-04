@@ -132,6 +132,9 @@ Select a test again to restore the comparison and chart.
 
 ### Read the timeline
 
+**Event details** starts collapsed and opens when you click an event. Click its
+heading to close it; closing preserves the current selection and displayed data.
+
 The chart places events from the selected artifact on a horizontal time axis.
 Each row represents one event, with a bar showing when it started and how long it lasted.
 Rows are ordered by start time. The axis shows UTC timestamps and seconds relative
@@ -146,7 +149,8 @@ with the exact selected test interval.
 
 - Purple bars represent test intervals; blue bars represent other events.
 - Each row label shows the source, `message.reason` (for example,
-  `ScalingReplicaSet` or `ProbeError`), and resource. A missing reason shows a dash.
+  `ScalingReplicaSet` or `ProbeError`), resource, and namespace. A missing reason
+  or namespace shows a dash.
 - The orange and pink vertical lines mark each selected test's start and end.
   Each shaded band shows that test's time interval.
 - Arrows and dashed bar edges indicate that an event continues beyond the visible

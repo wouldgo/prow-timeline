@@ -66,6 +66,9 @@ test('timeline collapses only identical records, independent of JSON object key 
 test('page has bounded event DOM and no external assets or unsafe sinks',()=>{
   assert.match(html,/const pageSize=60/);assert.match(html,/visible.slice\(page\*pageSize,/);
   assert.doesNotMatch(html,/innerHTML|document.write|<script[^>]+src=|<link[^>]+href=|fetch\(/);
+  assert.doesNotMatch(html,/id="run"/);
+  assert.match(html,/color-scheme:dark/);
+  assert.match(html,/prefers-color-scheme: light/);
   assert.match(html,/<details id="eventDetails" class="panel" aria-label="Event details"><summary><h2>Event details<\/h2><\/summary>/);
 });
 
@@ -76,58 +79,44 @@ test('nanosecond comparisons exclude points just outside either endpoint',()=>{
   }
 });
 
-test('native UI runtime: pagination, test selection/details, search, filters and run changes',()=>{
-  class Element {
-    constructor(tag){this.tag=tag;this.children=[];this.style={};this.value='';this.className='';this.listeners={};this._text='';this.open=false;}
-    get options(){return this.children;}
-    get selectedOptions(){return this.children.filter(option=>option.selected);}
-    get value(){return this.tag==='select'?String(this.selectedOptions[0]?.value??''):this._value;}
-    set value(value){this._value=String(value);if(this.tag==='select')for(const option of this.children)option.selected=String(option.value)===String(value);}
-    set textContent(value){this._text=String(value);this.children=[];}
-    get textContent(){return this._text+this.children.map(child=>child.textContent).join('');}
-    append(...children){for(const child of children){if(this.tag==='select'&&this.children.length===0)child.selected=true;this.children.push(child);}}
-    replaceChildren(...children){this.children=[];this._text='';this.value='';this.append(...children);}
-    setAttribute(name,value){this[name]=value;}
-    addEventListener(name,handler){this.listeners[name]=handler;}
-  }
+class Element {
+  constructor(tag){this.tag=tag;this.children=[];this.style={};this.value='';this.className='';this.listeners={};this._text='';this.open=false;}
+  get options(){return this.children;}
+  get selectedOptions(){return this.children.filter(option=>option.selected);}
+  get value(){return this.tag==='select'?String(this.selectedOptions[0]?.value??''):this._value;}
+  set value(value){this._value=String(value);if(this.tag==='select')for(const option of this.children)option.selected=String(option.value)===String(value);}
+  set textContent(value){this._text=String(value);this.children=[];}
+  get textContent(){return this._text+this.children.map(child=>child.textContent).join('');}
+  append(...children){for(const child of children){if(this.tag==='select'&&this.children.length===0)child.selected=true;this.children.push(child);}}
+  replaceChildren(...children){this.children=[];this._text='';this.value='';this.append(...children);}
+  setAttribute(name,value){this[name]=value;}
+  addEventListener(name,handler){this.listeners[name]=handler;}
+}
+const key=time=>new Date(time).toISOString().replace(/(\.\d{3})Z/,'$1000000Z');
+const event=(source,name,start,end)=>({source,level:'Info',locator:{type:source,keys:source==='E2ETest'?{'e2e-test':name}:{namespace:'ns',pod:name}},message:{reason:'Ready',humanMessage:'<script>untrusted</script>',annotations:{status:'Passed'}},start,end,from:new Date(start).toISOString(),to:new Date(end).toISOString(),startKey:key(start),endKey:key(end)});
+const scripts=[...html.matchAll(/<script>\n([\s\S]*?)<\/script>/g)].map(match=>match[1]);
+// boot renders one single-run page and returns its element accessors.
+const boot=dataset=>{
   const elements=new Map();
-  const selects=new Set(['run','tests','category','namespace']);
+  const selects=new Set(['tests','category','namespace']);
   const get=id=>{assert.ok(html.includes('id="'+id+'"'),'Unknown element '+id);if(!elements.has(id))elements.set(id,new Element(selects.has(id)?'select':'div'));return elements.get(id);};
-  const key=time=>new Date(time).toISOString().replace(/(\.\d{3})Z/,'$1000000Z');
-  const event=(source,name,start,end)=>({source,level:'Info',locator:{type:source,keys:source==='E2ETest'?{'e2e-test':name}:{namespace:'ns',pod:name}},message:{reason:'Ready',humanMessage:'<script>untrusted</script>',annotations:{status:'Passed'}},start,end,from:new Date(start).toISOString(),to:new Date(end).toISOString(),startKey:key(start),endKey:key(end)});
+  get('data').textContent=JSON.stringify(dataset);
+  get('window').value='focus';
+  const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)}});
+  vm.runInContext(scripts.join('\n'),context);
+  const rows=()=>get('rows').children.filter(child=>child.className==='event-row');
+  const findGroup=name=>get('countRows').children.find(row=>row.children[2].textContent==='pod='+name);
+  return {get,context,rows,findGroup};
+};
+const singleRun=(name,items)=>({jobURL:'https://example.invalid/untrusted',eventCount:items.length,testCount:items.filter(item=>item.source==='E2ETest').length,runs:[{name,testCount:items.filter(item=>item.source==='E2ETest').length,items}]});
+
+test('native UI runtime: pagination, test selection/details, search and filters',()=>{
   const items=[event('E2ETest','Alpha',1000,2000),event('E2ETest','Beta',3000,4000),event('E2ETest','Alpha',5000,6000),...Array.from({length:125},(_,index)=>event('PodState','pod-'+index,900,2100)),event('KubeEvent','outside',0,0)];
   items.push(...Array.from({length:305},(_,index)=>event('E2ETest','Extra-'+index,10000+index*100,10001+index*100)));
   items.push({...event('PodState','open-pod',900,40401),to:null,openEnd:true});
   items.push({...event('E2ETest','Open test',7000,40401),to:null,openEnd:true});
-  const testCount=items.filter(item=>item.source==='E2ETest').length;
-  const data={jobURL:'https://example.invalid/untrusted',eventCount:items.length+1,testCount,runs:[{name:'step/run1',testCount,items},{name:'step/run2',testCount:0,items:[event('PodState','other',1000,2000)]}]};
-  data.runs[1].items.push(...Array.from({length:61},(_,index)=>({
-    ...event(index===0?'E2ETest':'MachineMonitor','invalid-'+index,3000,1000),
-    valid:false,reason:'ends before it starts',start:0,end:0,startKey:'',endKey:''
-  })));
-  const otherItems=[event('E2ETest','Repeated',1000,2000),event('E2ETest','Repeated',1000,2000),...['2','3','4'].map((count,index)=>{
-    const record=event('KubeEvent','shared',1100+index,1900);record.message.annotations={uid:'shared',count};return record;
-  })];
-  otherItems.push(...Array.from({length:65},(_,index)=>{
-    const record=event('KubeEvent','uid-'+index,1200,1200);record.message.annotations={uid:'uid-'+index,count:'1'};return record;
-  }));
-  const duplicate=event('KubeEvent','duplicated',1100,1200);
-  duplicate.message.annotations={uid:'duplicated',count:'97'};
-  const later=event('KubeEvent','duplicated',1300,1400);later.message.annotations={uid:'duplicated',count:'103'};
-  otherItems.push(duplicate,JSON.parse(JSON.stringify(duplicate)),later);
-  data.runs.push({name:'step/run3',testCount:2,items:otherItems});data.eventCount+=otherItems.length;data.testCount+=2;
-  const multiItems=[event('E2ETest','Early',1000,2000),event('E2ETest','Late',3000,4000),
-    event('PodState','early-a',1100,1200),event('PodState','late-b',3100,3200),
-    event('PodState','gap',2500,2500),event('PodState','spanning',1500,3500),
-    {...event('PodState','invalid',3000,1000),valid:false,reason:'invalid',startKey:'',endKey:''}];
-  for(const item of multiItems.filter(item=>item.source==='PodState'))item.locator.keys.namespace=
-    item.locator.keys.pod==='late-b'||item.locator.keys.pod==='gap'?'b':item.valid===false?'c':'a';
-  data.runs.push({name:'step/multi',testCount:2,items:multiItems});
-  get('data').textContent=JSON.stringify(data);get('window').value='focus';
-  const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)}});
-  const scripts=[...html.matchAll(/<script>\n([\s\S]*?)<\/script>/g)].map(match=>match[1]);
-  vm.runInContext(scripts.join('\n'),context);
-  const rows=()=>get('rows').children.filter(child=>child.className==='event-row');
+  const data=singleRun('step/run1',items);
+  const {get,context,rows}=boot(data);
   assert.equal(get('eventDetails').open,false);
   assert.equal(rows().length,60);assert.match(get('page').textContent,/1 \/ 3/);
   const namespaceLabel=rows()[0].children[0].children.at(-1);
@@ -171,8 +160,7 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   const openDetails=JSON.parse(get('details').textContent);assert.equal(openDetails.to,null);assert.equal(openDetails.openEnd,true);assert.equal(openDetails.effectiveEndUTC,key(40401));
   get('category').value='KubeEvent';get('category').listeners.change();assert.equal(rows().length,0);
   get('window').value='all';get('window').listeners.change();assert.equal(rows().length,1);
-  get('run').value='1';get('run').onchange();assert.equal(rows().length,0);assert.match(get('summary').textContent,/No test selected/);
-  get('run').value='0';get('run').onchange();assert.equal(rows().length,60);assert.equal(get('category').value,'');
+  get('category').value='';get('category').listeners.change();
   get('testSearch').value='Extra-304';get('testSearch').oninput();assert.match(get('testInfo').textContent,/Extra-304/);
   get('testSearch').value='';get('testSearch').oninput();assert.equal(get('tests').children.length,301);
   assert.ok(get('tests').children.some(child=>String(child.value)===get('tests').value));
@@ -181,12 +169,38 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   get('text').value='Open test';get('text').listeners.input();assert.equal(rows().length,1);rows()[0].onclick();
   const selectedOpenDetails=JSON.parse(get('details').textContent);assert.equal(selectedOpenDetails.to,null);assert.equal(selectedOpenDetails.openEnd,true);assert.equal(selectedOpenDetails.effectiveEndUTC,key(40401));
   assert.match(get('rows').children.at(-1).children.at(-1).title,/observed horizon/);
-  vm.runInContext('showDetails(data.runs[2].items[2])',context);
-  const crossArtifact=JSON.parse(get('details').textContent);
-  assert.equal(crossArtifact.artifact,'step/run3');assert.deepEqual(crossArtifact.activeTests.map(test=>test.attempt),[1,2]);
-  assert.ok(crossArtifact.activeTests.every(test=>test.artifact==='step/run3'));
   get('text').value='';get('category').value='KubeEvent';get('text').listeners.input();
-  const findGroup=name=>get('countRows').children.find(row=>row.children[2].textContent==='pod='+name);
+  const absent= new Element('option');absent.value='not-present';get('namespace').append(absent);get('namespace').value='not-present';get('namespace').listeners.change();
+  assert.equal(get('countRows').children.length,0);
+  assert.equal(get('countsPage').textContent,'0 / 0');
+  assert.equal(get('countsPrev').disabled,true);assert.equal(get('countsNext').disabled,true);
+  assert.equal(get('countSummary').textContent,'No events match the filters.');
+  get('namespace').value='';get('category').value='';get('text').value='untrusted';get('text').listeners.input();
+  assert.ok(get('countRows').children.length>0);
+  assert.doesNotMatch(html,/Captured artifact data|occurrence ledger|groupRecords|ledgerPrev/);
+  get('text').value='duplicated';get('text').listeners.input();
+  assert.equal(rows().length,0);
+});
+
+test('native UI runtime: counters, duplicates and cross-checks within one run',()=>{
+  const otherItems=[event('E2ETest','Repeated',1000,2000),event('E2ETest','Repeated',1000,2000),...['2','3','4'].map((count,index)=>{
+    const record=event('KubeEvent','shared',1100+index,1900);record.message.annotations={uid:'shared',count};return record;
+  })];
+  otherItems.push(...Array.from({length:65},(_,index)=>{
+    const record=event('KubeEvent','uid-'+index,1200,1200);record.message.annotations={uid:'uid-'+index,count:'1'};return record;
+  }));
+  const duplicate=event('KubeEvent','duplicated',1100,1200);
+  duplicate.message.annotations={uid:'duplicated',count:'97'};
+  const later=event('KubeEvent','duplicated',1300,1400);later.message.annotations={uid:'duplicated',count:'103'};
+  otherItems.push(duplicate,JSON.parse(JSON.stringify(duplicate)),later);
+  otherItems.push({...event('E2ETest','Open test',7000,40401),to:null,openEnd:true});
+  const {get,context,rows,findGroup}=boot(singleRun('step/run3',otherItems));
+  get('testSearch').value='Open test';get('testSearch').oninput();
+  vm.runInContext('showDetails(data.runs[0].items[2])',context);
+  const crossRun=JSON.parse(get('details').textContent);
+  assert.equal(crossRun.artifact,'step/run3');assert.deepEqual(crossRun.activeTests.map(test=>test.attempt),[1,2]);
+  assert.ok(crossRun.activeTests.every(test=>test.artifact==='step/run3'));
+  get('text').value='';get('category').value='KubeEvent';get('text').listeners.input();
   const shared=findGroup('shared');assert.ok(shared);
   assert.equal(shared.children[4].textContent,'3');
   assert.equal(shared.children[5].textContent,'0');
@@ -209,7 +223,7 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   assert.equal(get('counterProgress').hidden,true);
   assert.match(get('countSummary').textContent,/Select a test/);
   assert.ok(get('countRows').children.every(row=>row.children[5].textContent==='—'));
-  get('testSearch').value='Alpha';get('testSearch').oninput();
+  get('testSearch').value='Repeated';get('testSearch').oninput();
   assert.equal(findGroup('shared').children[5].textContent,'3');
   assert.equal(get('counterProgress').hidden,false);
   assert.equal(get('progressRows').children.length,3);
@@ -222,8 +236,29 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   assert.equal(get('countSummary').textContent,'No events match the filters.');
   get('namespace').value='';get('category').value='';get('text').value='untrusted';get('text').listeners.input();
   assert.ok(get('countRows').children.length>0);
-  assert.doesNotMatch(html,/Captured artifact data|occurrence ledger|groupRecords|ledgerPrev/);
-  get('run').value='1';get('run').onchange();
+  get('text').value='duplicated';get('text').listeners.input();
+  assert.equal(rows().length,2);
+  const duplicateRow=rows().find(row=>row.textContent.includes('2 copies'));assert.ok(duplicateRow);
+  assert.match(duplicateRow['aria-label'],/2 copies/);
+  assert.equal(duplicateRow.children[0].children[1].className,'event-reason');
+  assert.equal(duplicateRow.children[0].children[1].textContent,'Ready');
+  assert.match(duplicateRow['aria-label'],/Ready/);
+  duplicateRow.onclick();
+  const duplicateDetails=JSON.parse(get('details').textContent);
+  assert.equal(duplicateDetails.identicalRecords,2);assert.equal(duplicateDetails.message.annotations.count,'97');
+  rows().find(row=>row!==duplicateRow).onclick();
+  assert.equal(JSON.parse(get('details').textContent).message.annotations.count,'103');
+  assert.equal(JSON.parse(get('details').textContent).identicalRecords,1);
+  assert.match(get('summary').textContent,/2 matching intervals.*3 records/);
+  assert.equal(findGroup('duplicated').children[4].textContent,'3');
+});
+
+test('native UI runtime: invalid intervals stay inspectable without tests',()=>{
+  const items=[event('PodState','other',1000,2000),...Array.from({length:61},(_,index)=>({
+    ...event(index===0?'E2ETest':'MachineMonitor','invalid-'+index,3000,1000),
+    valid:false,reason:'ends before it starts',start:0,end:0,startKey:'',endKey:''
+  }))];
+  const {get,rows}=boot(singleRun('step/run2',items));
   assert.equal(rows().length,0);assert.match(get('summary').textContent,/No test selected/);
   assert.equal(get('tests').children.length,0);
   assert.match(get('invalidSummary').textContent,/61 invalid intervals/);
@@ -246,27 +281,17 @@ test('native UI runtime: pagination, test selection/details, search, filters and
   assert.match(get('details').textContent,/invalid-60/);
   get('text').value='no match';get('text').listeners.input();
   assert.equal(get('invalidRows').children.length,0);assert.equal(get('invalidPage').textContent,'0 / 0');
+});
 
-  get('text').value='';get('testSearch').value='';get('run').value='2';get('run').onchange();
-  get('text').value='duplicated';get('text').listeners.input();
-  assert.equal(rows().length,2);
-  const duplicateRow=rows().find(row=>row.textContent.includes('2 copies'));assert.ok(duplicateRow);
-  assert.match(duplicateRow['aria-label'],/2 copies/);
-  assert.equal(duplicateRow.children[0].children[1].className,'event-reason');
-  assert.equal(duplicateRow.children[0].children[1].textContent,'Ready');
-  assert.match(duplicateRow['aria-label'],/Ready/);
-  duplicateRow.onclick();
-  const duplicateDetails=JSON.parse(get('details').textContent);
-  assert.equal(duplicateDetails.identicalRecords,2);assert.equal(duplicateDetails.message.annotations.count,'97');
-  rows().find(row=>row!==duplicateRow).onclick();
-  assert.equal(JSON.parse(get('details').textContent).message.annotations.count,'103');
-  assert.equal(JSON.parse(get('details').textContent).identicalRecords,1);
-  assert.match(get('summary').textContent,/2 matching intervals.*3 records/);
-  assert.equal(findGroup('duplicated').children[4].textContent,'3');
-  get('run').value='0';get('run').onchange();get('text').value='duplicated';get('text').listeners.input();
-  assert.equal(rows().length,0);
-
-  get('text').value='';get('run').value='3';get('run').onchange();get('window').value='focus';
+test('native UI runtime: multiple selected tests and namespace filters',()=>{
+  const multiItems=[event('E2ETest','Early',1000,2000),event('E2ETest','Late',3000,4000),
+    event('PodState','early-a',1100,1200),event('PodState','late-b',3100,3200),
+    event('PodState','gap',2500,2500),event('PodState','spanning',1500,3500),
+    {...event('PodState','invalid',3000,1000),valid:false,reason:'invalid',startKey:'',endKey:''}];
+  for(const item of multiItems.filter(item=>item.source==='PodState'))item.locator.keys.namespace=
+    item.locator.keys.pod==='late-b'||item.locator.keys.pod==='gap'?'b':item.valid===false?'c':'a';
+  const {get,rows,findGroup}=boot(singleRun('step/multi',multiItems));
+  get('window').value='focus';
   for(const option of get('tests').options)option.selected=true;
   get('tests').onchange();
   assert.match(get('testInfo').textContent,/Early[\s\S]*Late/);

@@ -6,14 +6,16 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Prow timeline</title>
 <style>
-:root{font:15px system-ui,sans-serif;color:#192b3d;background:#f3f6fa}*{box-sizing:border-box}body{margin:0}header,main{padding:1rem 0;margin:0}h1{font-size:1.5rem;margin:0 0 .6rem}p{line-height:1.5}.subtle{color:#4c6073;font-size:.9rem;overflow-wrap:anywhere}.controls{display:flex;flex-wrap:wrap;gap:.8rem;margin:.8rem 0;align-items:end}label{display:grid;gap:.3rem;font-weight:600;min-width:130px}input,select,button{font:inherit;border:1px solid #9eacbc;border-radius:5px;padding:.5rem;background:white;color:inherit}select{max-width:100%}#run{width:min(100%,1000px)}#tests{width:100%;height:9rem;font-weight:400}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #0079c4}#testInfo{border-left:4px solid #146bb0;background:#e5f0ff;padding:.8rem;white-space:pre-wrap;overflow-wrap:anywhere}.layout{display:grid;grid-template-columns:1fr;gap:1rem}.panel{background:white;border:1px solid #c6d0db;border-radius:6px;padding:1rem;min-width:0}.plot-scroll{overflow:auto}.plot{min-width:620px;position:relative}.axis,.event-row{display:grid;grid-template-columns:190px minmax(0,1fr)}.axis{position:relative;min-height:90px;border-bottom:1px solid #bccad9;font-size:.78rem}.ticks{position:relative}.tick{position:absolute;top:.4rem;transform:translateX(-50%);white-space:pre;text-align:center}.tick:last-child{transform:translateX(-100%)}.tick:first-child{transform:none}.rows{position:relative}.event-row{height:48px;border-bottom:1px solid #e4eaf0;width:100%;padding:0;text-align:left;border-radius:0;border-top:0;border-left:0;border-right:0;background:transparent}.event-row:hover{background:#edf5ff}.lane{overflow:hidden;padding:.3rem .5rem;font-size:.78rem;white-space:nowrap;text-overflow:ellipsis}.lane strong{display:block}.track{height:100%;position:relative;overflow:hidden}.bar{position:absolute;top:14px;height:22px;min-width:3px;background:#307ba7;border:1px solid #155b85;border-radius:3px;color:white;white-space:nowrap;overflow:hidden;font-size:.75rem;padding:1px 3px}.bar.test{background:#6c48a5}.bar.left{border-left:3px dashed #fff}.bar.right{border-right:3px dashed #fff}.overlay{position:absolute;left:190px;right:0;top:0;bottom:0;pointer-events:none}.shade{position:absolute;top:0;bottom:0;background:#dca82a20}.delimiter{position:absolute;top:0;bottom:0;border-left:2px solid #b55b00}.delimiter.end{border-color:#9c235c}.legend{font-size:.85rem;color:#4c6073}#details{white-space:pre-wrap;overflow-wrap:anywhere;font:13px ui-monospace,monospace;max-height:850px;overflow:auto}#summary{font-weight:600}.pager{display:flex;gap:.7rem;align-items:center;margin:.7rem 0}#error{color:#a00}summary{cursor:pointer}details p{font-size:.9rem}@media(max-width:1000px){.layout{grid-template-columns:1fr}.panel{padding:.7rem}header,main{padding:.7rem 0}#details{max-height:450px}}
+:root{font:15px system-ui,sans-serif;color:var(--fg);background:var(--bg);color-scheme:dark;--fg:#d7e1ea;--bg:#10161d;--muted:#93a5b5;--border:#4a5a6a;--surface:#1a2330;--accent:#4aa3e0;--info-border:#3f8fd6;--info-bg:#14263d;--hover:#22334a;--row-border:#263442;--panel-border:#33424f;--axis-border:#3a4a59;--bar:#3f8fc4;--bar-border:#2a6d9c;--bar-test:#8f6fd0;--shade:#dca82a30;--delim:#e08a3c;--delim-end:#d05c96;--error:#ff7a7a;--error-border:#a55;--head-bg:#17202b}
+@media (prefers-color-scheme: light){:root{color-scheme:light;--fg:#192b3d;--bg:#f3f6fa;--muted:#4c6073;--border:#9eacbc;--surface:#ffffff;--accent:#0079c4;--info-border:#146bb0;--info-bg:#e5f0ff;--hover:#edf5ff;--row-border:#e4eaf0;--panel-border:#c6d0db;--axis-border:#bccad9;--bar:#307ba7;--bar-border:#155b85;--bar-test:#6c48a5;--shade:#dca82a20;--delim:#b55b00;--delim-end:#9c235c;--error:#a00;--error-border:#c77;--head-bg:#f3f6fa}}
+*{box-sizing:border-box}body{margin:0;padding:5px}header,main{padding:1rem 0;margin:0}h1{font-size:1.5rem;margin:0 0 .6rem}p{line-height:1.5}.subtle{color:var(--muted);font-size:.9rem;overflow-wrap:anywhere}.controls{display:flex;flex-wrap:wrap;gap:.8rem;margin:.8rem 0;align-items:start}label{display:grid;gap:.3rem;font-weight:600;min-width:130px}input,select,button{font:inherit;border:1px solid var(--border);border-radius:5px;padding:.5rem;background:var(--surface);color:inherit}select{max-width:100%}#tests{width:100%;height:9rem;font-weight:400}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent)}#testInfo{border-left:4px solid var(--info-border);background:var(--info-bg);padding:.8rem;white-space:pre-wrap;overflow-wrap:anywhere}.layout{display:grid;grid-template-columns:1fr;gap:1rem}.panel{background:var(--surface);border:1px solid var(--panel-border);border-radius:6px;padding:1rem;min-width:0}.plot-scroll{overflow:auto}.plot{min-width:620px;position:relative}.axis,.event-row{display:grid;grid-template-columns:190px minmax(0,1fr)}.axis{position:relative;min-height:90px;border-bottom:1px solid var(--axis-border);font-size:.78rem}.ticks{position:relative}.tick{position:absolute;top:.4rem;transform:translateX(-50%);white-space:pre;text-align:center}.tick:last-child{transform:translateX(-100%)}.tick:first-child{transform:none}.rows{position:relative}.event-row{height:48px;border-bottom:1px solid var(--row-border);width:100%;padding:0;text-align:left;border-radius:0;border-top:0;border-left:0;border-right:0;background:transparent}.event-row:hover{background:var(--hover)}.lane{overflow:hidden;padding:.3rem .5rem;font-size:.78rem;white-space:nowrap;text-overflow:ellipsis}.lane strong{display:block}.track{height:100%;position:relative;overflow:hidden}.bar{position:absolute;top:14px;height:22px;min-width:3px;background:var(--bar);border:1px solid var(--bar-border);border-radius:3px;color:white;white-space:nowrap;overflow:hidden;font-size:.75rem;padding:1px 3px}.bar.test{background:var(--bar-test)}.bar.left{border-left:3px dashed #fff}.bar.right{border-right:3px dashed #fff}.overlay{position:absolute;left:190px;right:0;top:0;bottom:0;pointer-events:none}.shade{position:absolute;top:0;bottom:0;background:var(--shade)}.delimiter{position:absolute;top:0;bottom:0;border-left:2px solid var(--delim)}.delimiter.end{border-color:var(--delim-end)}.legend{font-size:.85rem;color:var(--muted)}#details{white-space:pre-wrap;overflow-wrap:anywhere;font:13px ui-monospace,monospace;max-height:850px;overflow:auto}#summary{font-weight:600}.pager{display:flex;gap:.7rem;align-items:center;margin:.7rem 0}#error{color:var(--error)}summary{cursor:pointer}details p{font-size:.9rem}@media(max-width:1000px){.layout{grid-template-columns:1fr}.panel{padding:.7rem}header,main{padding:.7rem 0}#details{max-height:450px}}
 .controls>label{min-width:0;max-width:100%}.controls input,.controls select{min-width:0;width:100%}
-#eventCounts{width:100%;border-collapse:collapse;font-size:.9rem}#eventCounts th,#eventCounts td{padding:.55rem;text-align:left;border-bottom:1px solid #e4eaf0;overflow-wrap:anywhere}#eventCounts th{background:#f3f6fa}#eventCounts .number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}#countSummary{overflow-wrap:anywhere}
-.invalid-event{display:block;width:100%;text-align:left;margin:.4rem 0;color:#a00;border-color:#c77;overflow-wrap:anywhere}
-.panel>summary h2{display:inline;margin:0}.panel>summary:focus-visible{outline:3px solid #0079c4}
+#eventCounts{width:100%;border-collapse:collapse;font-size:.9rem}#eventCounts th,#eventCounts td{padding:.55rem;text-align:left;border-bottom:1px solid var(--row-border);overflow-wrap:anywhere}#eventCounts th{background:var(--head-bg)}#eventCounts .number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}#countSummary{overflow-wrap:anywhere}
+.invalid-event{display:block;width:100%;text-align:left;margin:.4rem 0;color:var(--error);border-color:var(--error-border);overflow-wrap:anywhere}
+.panel>summary h2{display:inline;margin:0}.panel>summary:focus-visible{outline:3px solid var(--accent)}
 .event-row{height:82px}.bar{top:30px}.lane .event-reason{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis}
 .lane .event-namespace{display:block;color:#4c6073;overflow:hidden;text-overflow:ellipsis}.layout{align-items:start}
-#progressTable{width:100%;border-collapse:collapse;font-size:.9rem}#progressTable th,#progressTable td{padding:.55rem;text-align:left;border-bottom:1px solid #e4eaf0;overflow-wrap:anywhere}#progressTable th{background:#f3f6fa}
+#progressTable{width:100%;border-collapse:collapse;font-size:.9rem}#progressTable th,#progressTable td{padding:.55rem;text-align:left;border-bottom:1px solid var(--row-border);overflow-wrap:anywhere}#progressTable th{background:var(--head-bg)}
 </style>
 </head>
 <body>
@@ -21,20 +23,20 @@
 <h1>Prow timeline · UTC</h1>
 <div id="job" class="subtle"></div>
 <p class="subtle">Intervals show temporal coincidence, not ownership or causality. Overlapping tests may share the same events. All data is embedded; this page makes no network requests.</p>
-<label>Step / run artifact<select id="run"></select></label>
+<details><summary>How to read this view</summary><p>This page renders the single step / run artifact embedded in it and makes no network requests. Start in the header: search tests by name or outcome, pick one or more attempts (Ctrl/Cmd + click, Shift + click for ranges), then optionally narrow events with the Window, Category / source, Namespaces and Event text filters — filters change which events are shown, never the test selection. The selected tests' details live in the collapsible Selected test information block, which starts closed; the Global overview button clears the selection. The chart below draws one lane per event: purple bars are tests, orange and pink lines delimit the selected tests' start and end (observed horizon when the end is open), and each shaded band marks one selected test interval; click any lane to open Event details with the original record, and page through at most 60 rows at a time. Window = Selected tests + margin shows only intervals intersecting a selected test, endpoints included, with only the visible segment drawn; Window = Entire step / run also shows outside events. Around the chart, Events by resource counts records per resource and event, Cumulative counters in selected test tracks counter progression when exactly one test is selected, and Invalid events lists intervals excluded from temporal comparisons. Test search shows up to 300 choices plus retained matching selections; narrow the search to find more. Dark mode is the default; a light palette follows the system preference.</p></details>
 <div class="controls"><label>Search tests<input id="testSearch" type="search" placeholder="Test name or outcome"></label><span id="testCount"></span></div>
 <label>Select test attempts<select id="tests" multiple size="5" aria-label="Test attempts"></select></label>
-<p class="subtle">Use Ctrl/Cmd + click to select multiple tests or namespaces; Shift + click selects a range. Search narrows the test selection to matching choices. No namespace selected, or All, includes every namespace.</p>
-<p id="testInfo">Select a test.</p>
-<button id="clearTest">Global overview (no selected test)</button>
-</header>
-<main>
 <div class="controls">
 <label>Window<select id="window"><option value="focus">Selected tests + margin</option><option value="all">Entire step / run (outside events)</option></select></label>
 <label>Category / source<select id="category"></select></label>
 <label>Namespaces<select id="namespace" multiple size="5"></select></label>
 <label>Event text<input id="text" type="search" placeholder="Resource, message, level…"></label>
 </div>
+<p class="subtle">Use Ctrl/Cmd + click to select multiple tests or namespaces; Shift + click selects a range. Search narrows the test selection to matching choices. No namespace selected, or All, includes every namespace.</p>
+<details aria-label="Selected test information"><summary>Selected test information</summary><p id="testInfo">Select a test.</p></details>
+<button id="clearTest">Global overview (no selected test)</button>
+</header>
+<main>
 <p id="summary" role="status"></p><p id="error" role="alert"></p>
 <details class="panel" aria-label="Events by resource">
 <summary><h2>Events by resource</h2></summary>
@@ -70,7 +72,6 @@
 <div class="plot-scroll"><div class="plot"><div id="axis" class="axis"></div><div id="rows" class="rows"></div></div></div>
 </section>
 </div>
-<details><summary>How to read this view</summary><p>Focused mode includes intervals intersecting the selected test, including points exactly at either endpoint. A margin leaves room for start/end lines. Only the visible segment is drawn; full original intervals remain in details. Entire step / run mode retains access to all outside events. Filters apply to events, not test selection. Active tests are all test intervals intersecting an event, not an inference of causality. Pagination bounds event DOM to 60 rows. Test search shows up to 300 choices plus retained matching selections; narrow the search to find more.</p></details>
 </main>
 <script id="data" type="application/json">DATA_PLACEHOLDER</script>
 <script>
@@ -129,10 +130,9 @@ for(const run of data.runs){
 let countRows=[],countPage=0,invalidRows=[],invalidPage=0;
 let progressGroupKey=null,progressPage=0;
 get('job').textContent=data.jobURL+' · '+data.eventCount+' intervals · '+data.testCount+' tests';
-data.runs.forEach((run,index)=>option(get('run'),index,run.name+' · '+run.testCount+' tests'));
-// selectRun loads one artifact and prepares its test list.
+// selectRun prepares the embedded run's test list.
 function selectRun(){
-  events=[...data.runs[Number(get('run').value)].items];
+  events=[...data.runs[0].items];
   metadata=new Map(events.map(event=>[event,{resource:Timeline.resource(event),searchText:JSON.stringify(event).toLowerCase()}]));
   events.sort((first,second)=>first.source.localeCompare(second.source)||metadata.get(first).resource.localeCompare(metadata.get(second).resource)||first.startKey.localeCompare(second.startKey));
   lanes=Timeline.coalesce(events).sort((first,second)=>first.event.startKey.localeCompare(second.event.startKey));
@@ -259,7 +259,7 @@ function drawInvalid(){
 function draw(recount=true){
   if(recount){drawCounts();drawInvalid();}
   get('rows').replaceChildren();get('axis').replaceChildren();
-  if(!selected){get('testInfo').textContent='No matching test selected. Clear the test search or choose another artifact.';get('summary').textContent='No test selected';get('prev').disabled=true;get('next').disabled=true;get('page').textContent='0 / 0';return;}
+  if(!selected){get('testInfo').textContent='No matching test selected. Clear the test search.';get('summary').textContent='No test selected';get('prev').disabled=true;get('next').disabled=true;get('page').textContent='0 / 0';return;}
   get('testInfo').textContent=selectedTests.map(test=>testLabel(test)+'\nUTC '+test.from+' → '+Timeline.endLabel(test)+' · '+(test.openEnd?'observed span ':'duration ')+((test.end-test.start)/1000).toFixed(3)+' s').join('\n\n');
   const all=get('window').value==='all';
   const visible=lanes.filter(({event})=>event.valid !== false&&(all||overlapsSelection(event))&&Timeline.matches(event,get('category').value,selectedValues('namespace'),get('text').value,metadata.get(event).searchText));
@@ -291,7 +291,6 @@ function draw(recount=true){
   }
   get('rows').append(overlay);
 }
-get('run').onchange=selectRun;
 get('clearTest').onclick=()=>{selected=null;selectedTests=[];for(const option of get('tests').options)option.selected=false;page=0;draw();};
 get('testSearch').oninput=updateTests;
 get('tests').onchange=()=>{selectedTests=selectedValues('tests').map(value=>tests[Number(value)]);selected=selectedTests[0]||null;get('testCount').textContent=selectedTests.length+' selected tests';page=0;get('details').textContent='Select an event lane to inspect details.';draw();};

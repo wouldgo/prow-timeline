@@ -40,7 +40,7 @@
 <p id="summary" role="status"></p><p id="error" role="alert"></p>
 <details class="panel" aria-label="Events by resource">
 <summary><h2>Events by resource</h2></summary>
-<p class="subtle">All loaded artifacts, grouped by source, namespace, resource and event type. Timeline records count entries, including duplicates; In selected test counts overlapping entries. KubeEvent cumulative sums the maximum counter per Event UID across matching records, ignoring duplicate snapshots and message changes. It can include occurrences before the selected test or monitoring began. Records overlapping multiple selected tests count once. Counter progression requires a single selected test. Filters apply to all columns. Click Inspect counters for UID, hmsg, count, timestamps, pathological flags and duplicate copies; this does not reproduce the monitor's allow/reject rules.</p>
+<p class="subtle">Events from the embedded run, grouped by source, namespace, resource and event type. Timeline records count entries, including duplicates; In selected test counts overlapping entries. KubeEvent cumulative sums the maximum counter per Event UID across matching records, ignoring duplicate snapshots and message changes. It can include occurrences before the selected test or monitoring began. Records overlapping multiple selected tests count once. Counter progression requires a single selected test. Filters apply to all columns. Click Inspect counters for UID, hmsg, count, timestamps, pathological flags and duplicate copies; this does not reproduce the monitor's allow/reject rules.</p>
 <p id="countSummary" role="status"></p>
 <div class="plot-scroll">
 <table id="eventCounts">
@@ -178,7 +178,7 @@ function showCounters(group){
   get('details').textContent=JSON.stringify({source:group.source,namespace:group.namespace,resource:group.resource,event:group.event,
     timelineRecords:group.total,recordsInSelectedTest:group.inTest,cumulative:group.cumulative,
     counterUIDs:group.counterUIDs,recordsWithoutUsableCounter:group.missingCounters,
-    note:'Cumulative = sum of maximum count per Event UID among matching records across all loaded artifacts. Duplicate snapshots and changing messages do not add occurrences. Missing count defaults to 1, as in the monitor. Missing UID or invalid count is excluded and makes the total partial. Counts cover each Event lifetime, not the selected test. Gaps between snapshots hide individual occurrence times and messages. A pathological flag is recorded metadata, not a reproduction of monitor allow/reject rules.',
+    note:'Cumulative = sum of maximum count per Event UID among matching records in the embedded run. Duplicate snapshots and changing messages do not add occurrences. Missing count defaults to 1, as in the monitor. Missing UID or invalid count is excluded and makes the total partial. Counts cover each Event lifetime, not the selected test. Gaps between snapshots hide individual occurrence times and messages. A pathological flag is recorded metadata, not a reproduction of monitor allow/reject rules.',
     observations:group.observations},null,2);
 }
 function drawProgress(){
@@ -252,7 +252,7 @@ function drawInvalidRows(){
 function drawInvalid(){
   invalidRows=events.filter(event=>event.valid === false&&Timeline.matches(event,get('category').value,selectedValues('namespace'),get('text').value,metadata.get(event).searchText));
   invalidPage=0;
-  get('invalidSummary').textContent=invalidRows.length+' invalid intervals matching filters in this artifact';
+  get('invalidSummary').textContent=invalidRows.length+' invalid intervals matching filters in this run';
   drawInvalidRows();
 }
 // draw displays the chart for the selected test and filters.

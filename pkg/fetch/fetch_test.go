@@ -30,8 +30,7 @@ func TestFetcherIntegration(t *testing.T) {
 				if request.URL.Query().Get("pageToken") != "next/+ token" {
 					t.Error("page token lost")
 				}
-				listing = map[string]any{"items": []map[string]string{{"name": second}, {"name": first}, {"name": "outside/e2e-timelines_everything_20261102-170355.json"}}}
-			}
+				listing = map[string]any{"items": []map[string]string{{"name": strings.Replace(second, "everything_", "everything-other_", 1)}, {"name": first}, {"name": "outside/e2e-timelines_everything_20261102-170355.json"}}}			}
 			if err := json.NewEncoder(response).Encode(listing); err != nil {
 				t.Error(err)
 			}
@@ -53,7 +52,7 @@ func TestFetcherIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data.Runs) != 2 || data.TestCount != 2 || data.EventCount != 2 {
+	if len(data.Runs) != 1 || data.TestCount != 1 || data.EventCount != 1 || data.Runs[0].Name != strings.TrimPrefix(first, job.Prefix) {
 		t.Fatalf("unexpected dataset %+v", data)
 	}
 }

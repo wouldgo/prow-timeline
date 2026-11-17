@@ -76,6 +76,6 @@ func (c *Command) Run(ctx context.Context, args []string, stdout, stderr io.Writ
 	if err := c.writeFile(opts.output, page, 0600); err != nil {
 		return fmt.Errorf("write HTML: %w", err)
 	}
-	_, err = fmt.Fprintf(stdout, "Wrote %s: %d step/run artifacts, %d intervals, %d tests\n", opts.output, len(data.Runs), data.EventCount, data.TestCount)
+	_, err = fmt.Fprintf(stdout, "Wrote %s: run %s, %d intervals, %d tests\n", opts.output, data.Runs[0].Name, data.EventCount, data.TestCount)
 	return err
 }

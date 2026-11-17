@@ -20,7 +20,7 @@ func NewFetcher() *Fetcher {
 	return &Fetcher{loader: NewLoader(store)}
 }
 
-// Load reads and validates all supported timeline artifacts for job.
+// Load reads and validates the job's single timeline artifact.
 func (f *Fetcher) Load(ctx context.Context, job JobReference) (timeline.Dataset, error) {
 	return f.loader.Load(ctx, job)
 }

@@ -99,7 +99,7 @@ func TestCommandCoordinatesReportGeneration(t *testing.T) {
 	if !reflect.DeepEqual(calls, []string{"load", "render", "write"}) {
 		t.Fatalf("calls = %v", calls)
 	}
-	if stdout.String() != "Wrote report.html: 1 step/run artifacts, 7 intervals, 3 tests\n" {
+	if stdout.String() != "Wrote report.html: run run, 7 intervals, 3 tests\n" {
 		t.Fatalf("summary = %q", stdout.String())
 	}
 	if requestContext.Err() != context.Canceled {
@@ -119,7 +119,7 @@ func TestCommandStopsAtFailedStage(t *testing.T) {
 				if stage == "load" {
 					return timeline.Dataset{}, sentinel
 				}
-				return timeline.Dataset{}, nil
+				return timeline.Dataset{Runs: []timeline.Timeline{{Name: "run"}}}, nil
 			}))
 			command.render = func(timeline.Dataset) ([]byte, error) {
 				calls = append(calls, "render")

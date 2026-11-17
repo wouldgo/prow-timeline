@@ -33,11 +33,14 @@ func NewLoader(store Store) *Loader {
 	return &Loader{store: store, totalLimit: maxTotal}
 }
 
-// Load reads all supported artifacts in discovery order and validates the dataset.
+// Load reads the job's single timeline artifact and validates the dataset.
 func (l *Loader) Load(ctx context.Context, job JobReference) (timeline.Dataset, error) {
 	names, err := l.store.Discover(ctx, job)
 	if err != nil {
 		return timeline.Dataset{}, err
+	}
+	if len(names) != 1 {
+		return timeline.Dataset{}, fmt.Errorf("expected exactly one timeline artifact, found %d", len(names))
 	}
 	data := timeline.Dataset{JobURL: job.URL}
 	total := 0

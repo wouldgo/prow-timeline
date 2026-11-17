@@ -28,7 +28,7 @@ Open the report in a browser without a server or network connection.
 3. Open `timeline.html` in a browser.
 
 Place all flags before the job URL.
-The program writes the report after it downloads and checks all artifacts.
+The program writes the report after it downloads and checks the timeline artifact.
 The report contains the original artifact data and makes no network requests when opened.
 You decide where to store it, who to share it with, and whether it needs any access restrictions.
 
@@ -39,38 +39,38 @@ You decide where to store it, who to share it with, and whether it needs any acc
 
 ## Use the report
 
-Open `timeline.html` in your browser, then choose a **Step / run artifact**.
-This selects the timeline file whose tests and event chart you want to explore.
+Open `timeline.html` in your browser.
+The report contains the events of the job's single step/run artifact; a job with
+zero or several timeline artifacts is rejected.
 Use **Search tests** to find a test by name or outcome, then select one or more attempts
 under **Select test attempts**. Use Ctrl/Cmd + click for multiple choices or Shift + click
 for a range, in both the test and namespace lists. The report shows each selected
-test's status, start and end times, and duration. Search narrows the selection
+test's status, start and end times, and duration — in the collapsible
+**Selected test information** block, which starts closed. Search narrows the selection
 to matching tests.
 
 ### Compare event counts
 
 Selecting a test updates **Events by resource** so you can compare how many events
-occurred during that test with how many occurred across the loaded run data.
+occurred during that test with how many occurred across the embedded run.
 Each row groups events with the same category/source, namespace, resource,
 and event type, such as repeated events for a particular pod.
 
 | Column | Meaning |
 | --- | --- |
-| **Timeline records** | Number of matching event entries across all artifacts loaded into the report, including duplicates and events outside the selected test. |
+| **Timeline records** | Number of matching event entries in the embedded run, including duplicates and events outside the selected test. |
 | **Records in selected tests** | Number of those entries whose time intervals overlap at least one selected test, including endpoints. Each entry counts once even when it overlaps several selected tests. |
 | **KubeEvent cumulative (by UID)** | Sum of the maximum `message.annotations.count` for each distinct Kubernetes Event UID among matching records. Duplicate snapshots and changes to the message or `hmsg` do not increase this total. |
 | **Cumulative so far (test end)** | Sum of maximum counters per UID observed at or before the selected test's end. Future snapshots and invalid timestamps are excluded. Click **View progression** for the sequence within the test. |
 | **Counter observations** | Click **Inspect counters** to view each snapshot's UID, `hmsg`, count, first/last timestamps, interval, message, pathological flag and number of duplicate records in **Event details**. |
 
 For example, a row with **Timeline records = 20** and **Records in selected test = 3** means that
-20 entries match that resource and event type across the loaded artifacts,
+20 entries match that resource and event type in the embedded run,
 and 3 overlap the selected test.
 The total covers the data included in the report; it may not cover the whole Prow job.
-Changing **Step / run artifact** changes the available tests and the chart,
-while **Timeline records** continues to cover all loaded artifacts.
 
 Each timeline entry counts once. A cumulative count recorded inside an event
-does not increase this number, and entries repeated across artifacts are counted separately.
+does not increase this number.
 Event types use the event's reason and cause, or its message when no reason is present.
 Overlapping tests can include the same event: overlap tells you when it happened,
 without proving that a particular test caused it.
@@ -81,7 +81,7 @@ message changes. These values describe the Event object's cumulative history;
 they do not mean each displayed message occurred that many times. Kubernetes can
 combine similar messages into a single Event object.
 
-The cumulative column covers matching snapshots across all loaded artifacts;
+The cumulative column covers matching snapshots in the embedded run;
 it does not count occurrences within the selected test. The Event history can
 begin before monitoring or the selected test. Gaps between snapshots hide the
 time and message of individual occurrences. Filters can hide later snapshots,
@@ -123,7 +123,7 @@ Use the controls below the test selector to narrow down the counts and chart:
 
 You can combine all three filters. All count columns update to use the same filters,
 so you can compare the selected test with the wider run for just the events of interest.
-The chart and **Invalid events** list use those filters within the selected artifact.
+The chart and **Invalid events** list use those filters within the embedded run.
 These filters do not change which test is selected; **Search tests** searches the test list separately.
 
 Select **Global overview (no selected test)** to browse totals without a test comparison.
@@ -135,7 +135,7 @@ Select a test again to restore the comparison and chart.
 **Event details** starts collapsed and opens when you click an event. Click its
 heading to close it; closing preserves the current selection and displayed data.
 
-The chart places events from the selected artifact on a horizontal time axis.
+The chart places events from the embedded run on a horizontal time axis.
 Each row represents one event, with a bar showing when it started and how long it lasted.
 Rows are ordered by start time. The axis shows UTC timestamps and seconds relative
 to the earliest selected test's start.
@@ -143,8 +143,8 @@ to the earliest selected test's start.
 By default, **Window → Selected tests + margin** shows events that overlap at least one
 selected test, with some space around the combined window. Events entirely in gaps
 between the selected tests are excluded. Choose **Entire step / run (outside events)**
-to see events before and after the test in the same artifact.
-This changes the chart's time window; the count table still compares all loaded artifacts
+to see events before and after the test in the same run.
+This changes the chart's time window; the count table still compares the embedded run
 with the exact selected test interval.
 
 - Purple bars represent test intervals; blue bars represent other events.
@@ -158,15 +158,15 @@ with the exact selected test interval.
 
 Click an event row to open **Event details**. You can inspect its resource,
 message, original timestamps, and the tests whose intervals overlap it.
-The chart combines records that are identical in every stored field within the
-selected artifact, regardless of JSON object key order. A combined row shows
+The chart combines records that are identical in every stored field,
+regardless of JSON object key order. A combined row shows
 **2 copies**, for example, and its details include `identicalRecords: 2`.
 Different timestamps, counters, messages, UIDs or other fields keep rows separate.
 The summary shows both displayed intervals and the original number of matching
 records. Original embedded records, count-table totals and test attempts are
 preserved.
 For an event with an unknown end (`to: null`), the chart extends the bar to the
-latest valid timestamp in that artifact. This is the last observed time,
+latest valid timestamp in the run. This is the last observed time,
 rather than a confirmed end; the details retain the original null value.
 
 Use **Previous** and **Next** to move through the chart, which shows 60 events per page.
@@ -195,6 +195,8 @@ The program reads files under `artifacts/` with these names:
 - `e2e-timelines_everything_YYYYMMDD-HHMMSS.json`
 - `e2e-timelines_everything_YYYYMMDD-HHMMSS.json.gz`
 
+The job must expose exactly one such file; zero or several timeline artifacts
+are rejected with an error.
 Each file must contain a nonempty `items` array.
 The dataset must contain an `E2ETest` entry with a `locator.keys["e2e-test"]` name.
 The program rejects JSON that cannot be decoded and missing or empty interval arrays.
@@ -202,7 +204,7 @@ Each interval has `valid` and `reason` properties computed by the parser.
 Missing, invalid, or reversed timestamps set `valid: false` and an explanatory `reason`.
 Valid intervals have `valid: true` and an empty `reason`.
 The report retains invalid intervals in total counts and lists them under **Invalid events**
-with their reason and original data. The list uses the selected artifact and event filters.
+with their reason and original data. The list uses the embedded run's event filters.
 Invalid intervals do not affect the chart, open-interval horizon, or overlap counts,
 and invalid test intervals cannot be selected as a time window.
 An explicit `to: null` is valid.
@@ -210,7 +212,7 @@ The program includes entries with `display: false`.
 
 The report compares UTC timestamps with nanosecond precision.
 The chart uses floating point milliseconds to draw intervals.
-The report covers the loaded artifacts, which can omit parts of the job.
+The report covers the embedded run, which can omit parts of the job.
 
 ## Build and test commands
 
